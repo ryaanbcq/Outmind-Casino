@@ -29,9 +29,8 @@ money and talk to players. The Paper plugins are not part of this repository.
 | `mineflayer-bot/bot.js` | `mineflayer-bot` | Bank account on the public server. Detects incoming payments, credits the ledger, pays withdrawals, answers `/msg`, runs the watchdogs and the leaderboard NPC decor. |
 | `mineflayer-bot/bridge.js` | `bridge` | Reconciles the ledger with the in-game vault through the Pterodactyl panel API: reads the plugin outbox (cashout requests, game deltas), writes the inbox (credits), sends console signals to the plugin, publishes stats files. |
 | `mineflayer-bot/lib/` | shared | `ledger.js` is the **only** writer of `balances.json` (inter-process lock, atomic writes, audit log). `quotas.js` handles the daily caps with an atomic `reserve()`. `guard.js` is the circuit breaker. `admin-orders.js`, `alerts.js`, `backups.js`, `report.js`, `decor.js`, `money.js`, `fstore.js`, `ptero.js` are self-explanatory. |
-| `mineflayer-bot/autopay-worker.js` | on demand | Logs into a player's own Minecraft account (token they handed over on Discord) to pay the casino for them. |
 | `mineflayer-bot/panel.js` | optional | Small local web panel to watch the bank. |
-| `discord-bot/bot.js` | `discord-bot` | Discord side: account linking (`/verify` code from the game), `/cashout`, `/chain` (double or nothing), `/stats`, `/vouch`, `/balance`, `/bank` (auto deposit), showcase channels, admin commands. |
+| `discord-bot/bot.js` | `discord-bot` | Discord side: account linking (`/verify` code from the game), `/cashout`, `/chain` (double or nothing), `/stats`, `/vouch`, `/balance`, showcase channels, admin commands. The auto-deposit feature (`autodeposit.js`, `bank-auth-worker.js`) is disabled by default and its payment worker is not published. |
 | `discord-bot/public-ai.js`, `admin-ai.js` | inside `discord-bot` | Optional LLM desks: a public helper for players and an admin assistant. Both are off when no API key is configured. |
 
 ## Paper server side (`paper/`)
