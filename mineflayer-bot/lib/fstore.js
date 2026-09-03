@@ -79,7 +79,7 @@ function withLock(lockPath, fn, opts = {}) {
       if (age > staleMs) {
         // vol ATOMIQUE par rename : un seul gagnant. L'ancien rmdir+mkdir
         // laissait deux voleurs entrer ensemble dans la section critique
-        // (revue adversariale 2026-08-30) — le perdant du rename repart
+        // (revue adversariale 2026-08-30) - le perdant du rename repart
         // simplement dans la boucle.
         const morgue = `${lockPath}.steal.${process.pid}.${Date.now()}`;
         try { fs.renameSync(lockPath, morgue); fs.rmdirSync(morgue); } catch {}

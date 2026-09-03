@@ -58,7 +58,7 @@ function fmt(n) {
   return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
-// format court pour les hologrammes (1.5M, 100K, 2B — sans le $)
+// format court pour les hologrammes (1.5M, 100K, 2B - sans le $)
 function fmtShort(n) {
   let s;
   if (n >= 1e9) s = (n / 1e9).toFixed(1) + 'B';

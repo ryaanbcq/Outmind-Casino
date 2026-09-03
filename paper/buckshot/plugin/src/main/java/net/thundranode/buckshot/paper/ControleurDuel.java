@@ -93,7 +93,7 @@ public final class ControleurDuel {
 
     /** Boucle d'entretien d'une table DUEL : le solo n'y tourne pas, donc sa
      *  boucle d'approche (qui portait la reparation des chunks decharges)
-     *  n'existe pas — celle-ci ne fait QUE reparer, jamais demarrer. */
+     *  n'existe pas - celle-ci ne fait QUE reparer, jamais demarrer. */
     private BukkitTask tacheReparation;
 
     public void surveillerReparation() {
@@ -322,7 +322,7 @@ public final class ControleurDuel {
             return;
         }
         // Pas de condition de distance : le JOIN part du chat, d'ou qu'on
-        // soit — l'installation teleporte les deux joueurs a la table.
+        // soit - l'installation teleporte les deux joueurs a la table.
         Player challenger = Bukkit.getPlayer(defi.challenger());
         if (challenger == null || !challenger.isOnline()) {
             // Ne devrait pas arriver (le depart rembourse et retire le defi),
@@ -391,8 +391,8 @@ public final class ControleurDuel {
         posesForcees.clear();
         long pot = mise * 2;
         var annonce = Component.text(j1.getName() + " vs " + j2.getName()
-                + (pot > 0 ? " — $" + net.thundranode.buckshot.Mises.formater(pot) + " pot."
-                : " — free duel."), NamedTextColor.GOLD);
+                + (pot > 0 ? " - $" + net.thundranode.buckshot.Mises.formater(pot) + " pot."
+                : " - free duel."), NamedTextColor.GOLD);
         pourJoueurs(j -> j.sendMessage(annonce));
         annoncerTemoins(annonce);
         suiviVisee = Bukkit.getScheduler().runTaskTimer(plugin,
@@ -511,7 +511,7 @@ public final class ControleurDuel {
     private void traiter(SessionDuel courante, ResultatAction resultat) {
         if (!active(courante)) return;
         if (!resultat.acceptee()) {
-            plugin.getLogger().warning("[Buckshot] duel : action refusee — " + resultat.erreur());
+            plugin.getLogger().warning("[Buckshot] duel : action refusee - " + resultat.erreur());
             return;
         }
         traiterEvenements(courante, resultat.evenements());
@@ -577,7 +577,7 @@ public final class ControleurDuel {
                 if (e.objet() == Objet.BIERE) dernierBuveur = e.acteur();
             } else if (evenement instanceof EvenementPartie.ChambrePrivee e) {
                 // SECRET : contrairement au solo, l'adversaire est un humain
-                // assis en face — la lecture de la loupe ne sort pas de
+                // assis en face - la lecture de la loupe ne sort pas de
                 // l'ecran de celui qui regarde. Pas de relais aux temoins.
                 Player lecteur = joueur(courante, e.acteur());
                 if (lecteur != null) {
@@ -693,7 +693,7 @@ public final class ControleurDuel {
     private void finDuel(SessionDuel courante, Acteur vainqueur) {
         // Le pot se paye UNE fois : un quit pendant la fenetre de fin (les
         // 100 ticks avant le nettoyage) ne doit pas declencher un forfait
-        // qui repayerait — voire payerait le perdant si le gagnant part.
+        // qui repayerait - voire payerait le perdant si le gagnant part.
         courante.regler();
         Player gagnant = joueur(courante, vainqueur);
         Player perdant = joueur(courante, vainqueur.oppose());

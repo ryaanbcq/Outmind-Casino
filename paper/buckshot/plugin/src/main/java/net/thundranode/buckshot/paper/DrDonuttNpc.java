@@ -75,7 +75,7 @@ public final class DrDonuttNpc {
         // joueur le plus proche a saute a son tour : les bras crossbow sont
         // rendus par le client en suivant la TETE, donc chaque rotation
         // baladait les bras pendant que l'habillage ItemDisplay (menottes,
-        // fusil) restait cale — le dealer est desormais VERROUILLE face a
+        // fusil) restait cale - le dealer est desormais VERROUILLE face a
         // la place du joueur, pitch fige a pitchAnimation.
         var difference = aRegarder.toVector().subtract(lieu.toVector());
         lacetTable = Math.toDegrees(Math.atan2(-difference.getX(), difference.getZ()));

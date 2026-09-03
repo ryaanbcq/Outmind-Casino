@@ -26,7 +26,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
     private Regles reglesDuel;
     private Banque banque;
     /** Multi-tables (2026-08-29) : chaque table a sa scene, son dealer, sa
-     * partie et ses ecouteurs — les parties tournent en parallele. */
+     * partie et ses ecouteurs - les parties tournent en parallele. */
     private final List<TableJeu> tables = new ArrayList<>();
     private org.bukkit.scheduler.BukkitTask balayageRepere;
 
@@ -109,12 +109,12 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                 getConfig().getInt("game.dealer-item-ticks", 30),
                 getConfig().getInt("game.loupe-hold-ticks", 18));
         // Duel PvP (2026-08-30) : un second controleur par table, frere du
-        // solo — meme scene, meme table, jamais les deux en meme temps.
+        // solo - meme scene, meme table, jamais les deux en meme temps.
         ControleurDuel duel = new ControleurDuel(this, reglesDuel, animateur,
                 new InventairePartie(this), new EcranNoir(this), banque, scene,
                 getConfig().getInt("game.loupe-hold-ticks", 18));
         // Verrou inter-tables : une seule partie par joueur, toutes tables
-        // confondues (le clic dealer d'une table voisine passait sinon) —
+        // confondues (le clic dealer d'une table voisine passait sinon) -
         // duels compris, dans les deux sens.
         controleur.verrouExterne(joueurId -> {
             TableJeu occupee = tableSession(joueurId);
@@ -204,7 +204,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
     }
 
     /** Table de duel de ce joueur : son duel/defi d'abord, sinon la table
-     *  DUEL la plus proche — jamais une table solo, les deux familles ne se
+     *  DUEL la plus proche - jamais une table solo, les deux familles ne se
      *  melangent pas. */
     private TableJeu tableDuelDe(Player joueur) {
         TableJeu concerne = tableDuelConcerne(joueur.getUniqueId());
@@ -348,13 +348,13 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
     /**
      * Regles du duel PvP : UN round (le moteur tourne avec roundFinal = 1),
      * 6 coeurs chacun, tous les objets en jeu. Le record Regles exige trois
-     * entrees par liste, alors la meme valeur est tripliquee — seule la
+     * entrees par liste, alors la meme valeur est tripliquee - seule la
      * premiere sert.
      */
     private Regles lireReglesDuel() {
         int vies = getConfig().getInt("duel.vies", 6);
         // Chargeur de duel totalement aleatoire (demande user 2026-08-30) :
-        // 2 a 8 cartouches, reelles libres — le generateur clampe de toute
+        // 2 a 8 cartouches, reelles libres - le generateur clampe de toute
         // facon pour garder au moins une reelle ET une blanche.
         var plage = new net.thundranode.buckshot.jeu.Regles.PlageChargeur(
                 getConfig().getInt("duel.chargeur.min", 2),
@@ -375,13 +375,13 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             envoyeur.sendMessage(Component.text("Players only."));
             return true;
         }
-        // Multi-tables : les commandes travaillent sur la table du joueur —
+        // Multi-tables : les commandes travaillent sur la table du joueur -
         // sa partie en cours d'abord, sinon la plus proche dans son monde.
         TableJeu tableCourante = tableDe(joueur);
         MiseEnScene scene = tableCourante == null ? null : tableCourante.scene();
         ControleurPartie controleur = tableCourante == null ? null : tableCourante.controleur();
 
-        // /leave : la meme sortie que le bouton GIVE UP — a la question de
+        // /leave : la meme sortie que le bouton GIVE UP - a la question de
         // relance on part avec la caisse, en plein round on perd tout.
         if (cmd.getName().equalsIgnoreCase("leave")) {
             if (!joueur.hasPermission("buckshot.play")) return interdit(joueur);
@@ -433,7 +433,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
         }
         // Duel PvP : /rr duel <montant> pose un defi, accepter/annuler le
         // resolvent. La table de travail est celle du duel du joueur, sinon
-        // la plus proche — comme les autres commandes.
+        // la plus proche - comme les autres commandes.
         if (sousCommande.equals("duel")) {
             if (!joueur.hasPermission("buckshot.play")) return interdit(joueur);
             // Resolue paresseusement : le JOIN clique depuis un autre monde
@@ -934,9 +934,9 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                                 && table.scene().config().estDuel() ? "duel" : "solo";
                         joueur.sendMessage(Component.text("Table " + index++ + " (" + typeAffiche
                                         + "): " + table.scene().description()
-                                        + (table.controleur().partieEnCours() ? " — game in progress"
-                                        : table.duel().enCours() ? " — duel in progress"
-                                        : table.duel().occupeTable() ? " — duel challenge pending" : ""),
+                                        + (table.controleur().partieEnCours() ? " - game in progress"
+                                        : table.duel().enCours() ? " - duel in progress"
+                                        : table.duel().occupeTable() ? " - duel challenge pending" : ""),
                                 NamedTextColor.GRAY));
                     }
                     return true;
@@ -1003,7 +1003,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
     }
 
     private void envoyerPanneauSons(Player joueur) {
-        joueur.sendMessage(Component.text("— Buckshot mixing —", NamedTextColor.GOLD));
+        joueur.sendMessage(Component.text("- Buckshot mixing -", NamedTextColor.GOLD));
         joueur.sendMessage(ligneSon("Music", "musique",
                 getConfig().getDouble("sons.volume-musique", 0.7)));
         joueur.sendMessage(ligneSon("Voice", "voix",

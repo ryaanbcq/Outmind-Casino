@@ -27,7 +27,7 @@ module.exports = function creerAdminOrders({ dir, ledger, quotas, guard, log }) 
 
   // Prefixe point Bedrock (5e morsure, 2026-08-29) : un vouch/credit admin
   // arrive parfois avec le pseudo sans son point Floodgate. Si le compte
-  // pointe existe et pas le nu, on recolle le point — sinon le credit cree
+  // pointe existe et pas le nu, on recolle le point - sinon le credit cree
   // une cle fantome que la reconciliation pousse vers un profil inexistant.
   function reglerPoint(player, bals) {
     if (String(player).startsWith('.') || (player in bals)) return player;
@@ -46,7 +46,7 @@ module.exports = function creerAdminOrders({ dir, ledger, quotas, guard, log }) 
     const complete = lines.length - 1; // la derniere entree est '' ou une ligne partielle
     if (complete < state.adminOffset) {
       // fichier retreci (rotation ? edition ?) : ne JAMAIS rejouer des ordres
-      // d'argent — on saute a la fin et on previent
+      // d'argent - on saute a la fin et on previent
       log(`admin-orders.jsonl a retreci (${complete} < ${state.adminOffset}) : offset repositionne en fin, AUCUN rejeu`);
       state.adminOffset = complete;
       saveState();
@@ -122,14 +122,14 @@ module.exports = function creerAdminOrders({ dir, ledger, quotas, guard, log }) 
         state.lastAdminPays[key] = Date.now();
         quotas.addManualPaid(o.player, amount);
         // commit AVANT l'ordre de /pay : un crash entre les deux donne un pay
-        // manquant (re-emis a la main avec force), jamais un pay double — meme
+        // manquant (re-emis a la main avec force), jamais un pay double - meme
         // doctrine que le handler cashout du bridge
         commit();
         appendLine(PAYOUTS_FILE, { at: Date.now(), player: o.player, amount });
         log(`admin pay ${o.player} ${amount} par ${o.by} : ${o.reason || 'sans motif'}`);
       } else if (o.kind === 'transfer') {
         // Transfert joueur -> joueur, ATOMIQUE : debit et credit dans la meme
-        // mutation, donc conservation stricte — on credite exactement ce qu'on
+        // mutation, donc conservation stricte - on credite exactement ce qu'on
         // a pu debiter, jamais plus.
         if (!o.to) { log(`transfer invalide ligne ${i} : cible absente`); commit(); continue; }
         ledger.mutate('admin-transfer', (bals, note) => {

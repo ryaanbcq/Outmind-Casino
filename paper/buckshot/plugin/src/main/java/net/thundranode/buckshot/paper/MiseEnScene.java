@@ -156,7 +156,7 @@ public final class MiseEnScene implements ScenePartie {
     public void demarrer() {
         // centreConfigure() nul = monde absent (supprime ?) : on ne
         // reconstruit pas, mais la table reste en config au cas ou le monde
-        // revienne — reparerSiNecessaire retentera.
+        // revienne - reparerSiNecessaire retentera.
         if (centreConfigure() != null) reconstruire();
         tacheMusique = Bukkit.getScheduler().runTaskTimer(plugin, this::verifierMusique, 20L, 20L);
     }
@@ -217,7 +217,7 @@ public final class MiseEnScene implements ScenePartie {
         // de chene noir a rebord clair, tablier sous le plateau, pieds trapus
         // relies par des entretoises, coins ferres. Chaque ligne = un pave
         // {min local x, min y, min z, taille x, y, z} tourne autour de l'axe
-        // du centre. CONTRAINTE : le dessus du feutre reste a +0.90 — le sang
+        // du centre. CONTRAINTE : le dessus du feutre reste a +0.90 - le sang
         // (0.902) et le fusil (0.95) y sont calibres.
         record Pave(Material matiere, float x, float y, float z,
                     float sx, float sy, float sz) {}
@@ -286,7 +286,7 @@ public final class MiseEnScene implements ScenePartie {
         poserDecoTable(centre, cosDeco, sinDeco, 1.75, 0.93, -0.65, menottesDeco,
                 0.5f, (float) (Math.PI / 2), 0.6f);
         // Table solo : les deux bougies vivent cote DrDonutt, comme toujours.
-        // Table duel : une bougie par joueur, aux coins opposes en diagonale —
+        // Table duel : une bougie par joueur, aux coins opposes en diagonale -
         // les deux du meme cote encombraient la place du joueur 2 (remarque
         // user 2026-08-30).
         float[][] bougies = duel
@@ -387,7 +387,7 @@ public final class MiseEnScene implements ScenePartie {
 
     /**
      * La table n'etait que des displays : on la traversait. Des barrieres
-     * invisibles remplissent son emprise sur deux blocs de haut — assez pour
+     * invisibles remplissent son emprise sur deux blocs de haut - assez pour
      * qu'on ne puisse ni la traverser ni sauter dessus. Seuls des blocs d'AIR
      * sont remplaces, et chaque bloc pose est memorise pour le retrait.
      */
@@ -686,7 +686,7 @@ public final class MiseEnScene implements ScenePartie {
             String idEntite = entite.getPersistentDataContainer().get(cleTableId, PersistentDataType.STRING);
             // Multi-tables : ne balayer que SES entites. Les entites sans id
             // (posees avant la mise a jour) sont rattrapees si elles sont
-            // proches du centre — au-dela, elles appartiennent a une autre
+            // proches du centre - au-dela, elles appartiennent a une autre
             // table ou a un orphelin que /rr table retirer ramassera.
             boolean aMoi = id.equals(idEntite)
                     || (idEntite == null && entite.getLocation().distanceSquared(centre) <= 12 * 12);
@@ -1510,7 +1510,7 @@ public final class MiseEnScene implements ScenePartie {
     public void ejecterCartouche(Acteur acteur, boolean reelle, Player humain) {
         if (config == null) return;
         // Duel PvP : le role DEALER est tenu par un vrai joueur et le PNJ est
-        // range — la douille part alors de la main du tireur humain passe en
+        // range - la douille part alors de la main du tireur humain passe en
         // parametre. En solo le PNJ est toujours la, rien ne change.
         Player source = acteur == Acteur.DEALER ? dealer.entite().orElse(humain) : humain;
         if (source == null) return;
@@ -1979,7 +1979,7 @@ public final class MiseEnScene implements ScenePartie {
      * Idempotent : appele apres chaque action traitee, il ne refait rien tant
      * que l'etat ne change pas. A la pose : claquement de chaine et bracelets
      * qui apparaissent 40 % trop grands, resorbes par l'interpolation du
-     * premier suivi — l'effet "menottes qui se referment". Au retrait :
+     * premier suivi - l'effet "menottes qui se referment". Au retrait :
      * chaine cassee. Entre les deux, suivi du cap du porteur toutes les 2
      * ticks, comme le fusil vise.
      */

@@ -97,7 +97,7 @@ module.exports = function creerGuard({ dir, env, alert, log }) {
   // Verdict AVANT d'emettre la poussee. NE CONCERNE QUE LES POUSSEES
   // POSITIVES (credits en jeu) : la classe d'incident visee est la
   // FABRICATION d'argent (2x70M). Bloquer une poussee negative (retrait deja
-  // opere en banque) laisserait le vault du joueur plus riche que sa banque —
+  // opere en banque) laisserait le vault du joueur plus riche que sa banque -
   // divergence encaissable en cashout, demontree en contre-verification
   // 2026-08-30. Les negatives passent toujours, avec notification.
   // Ne modifie rien d'autre que les gels : l'appelant n'enregistre la poussee
@@ -121,7 +121,7 @@ module.exports = function creerGuard({ dir, env, alert, log }) {
       if (repeat) {
         freezePlayer(state, player,
           `poussee de ${fmtExact(amount)} quasi identique a celle de ${new Date(repeat.at).toISOString()} `
-          + `(${fmtExact(repeat.amount)}) — signature d'une boucle de reconciliation (incident 2x70M du 2026-08-29)`);
+          + `(${fmtExact(repeat.amount)}) - signature d'une boucle de reconciliation (incident 2x70M du 2026-08-29)`);
         return { ok: false, reason: 'poussee repetee' };
       }
     }

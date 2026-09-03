@@ -23,7 +23,7 @@ module.exports = function creerAlerts(alertsFile, log) {
     try {
       fs.appendFileSync(alertsFile, JSON.stringify({ at: now, text: `[bridge] ${text}` }) + '\n');
     } catch (e) {
-      log(`alerte non ecrite (${e.message}) — elle reste au moins dans ce journal`);
+      log(`alerte non ecrite (${e.message}) - elle reste au moins dans ce journal`);
     }
     return true;
   }

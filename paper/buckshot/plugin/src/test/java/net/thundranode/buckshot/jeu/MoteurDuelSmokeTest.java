@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Le moteur en mode duel : roundFinal = 1, six vies chacun. Le premier
- * participant a zero vie perd la PARTIE entiere — aucun round 2.
+ * participant a zero vie perd la PARTIE entiere - aucun round 2.
  */
 class MoteurDuelSmokeTest {
 
@@ -38,7 +38,7 @@ class MoteurDuelSmokeTest {
         MoteurPartie moteur = pret(quunDesReelles);
         ResultatAction dernier = null;
         // 6 vies a vider, chargeurs de 6 reelles : le joueur 1 tire, encaisse
-        // le tour adverse, etc. Chacun descend l'autre — on tire toujours
+        // le tour adverse, etc. Chacun descend l'autre - on tire toujours
         // l'adversaire, le premier a zero perd.
         for (int coup = 0; coup < 20 && moteur.phase() != PhasePartie.FIN_PARTIE; coup++) {
             if (moteur.phase() == PhasePartie.RECHARGEMENT) {

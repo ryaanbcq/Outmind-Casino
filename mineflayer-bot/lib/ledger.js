@@ -33,9 +33,9 @@ module.exports = function creerLedger(dir) {
 
   // mutation generique : fn recoit le grand livre fraichement relu et un
   // enregistreur d'evenements d'audit ; opts.after tourne encore SOUS le
-  // verrou, apres l'ecriture des soldes — c'est la que le bridge persiste son
+  // verrou, apres l'ecriture des soldes - c'est la que le bridge persiste son
   // offset d'outbox. ATTENTION : ce sont DEUX ecritures atomiques distinctes,
-  // pas une transaction — un kill -9 pile entre les deux rejoue la ligne au
+  // pas une transaction - un kill -9 pile entre les deux rejoue la ligne au
   // redemarrage (fenetre de quelques microsecondes ; l'audit garde la double
   // trace pour la reparation). Les signaux d'arret, eux, sont differes par le
   // bridge jusqu'a la fin du tick.

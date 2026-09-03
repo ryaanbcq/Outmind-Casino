@@ -3,7 +3,7 @@
 //  (retraits « pay me ») et bridge.js (cashouts du casino).
 //
 //  L'argent sort par deux portes ; un compteur par process ne verrait
-//  que sa moitie — c'est comme ca que 90M sont sortis le 2026-08-16
+//  que sa moitie - c'est comme ca que 90M sont sortis le 2026-08-16
 //  malgre un plafond deja atteint. daily-cap.json est le compteur
 //  commun, ecrit sous verrou et en atomique depuis la refonte.
 //
@@ -75,7 +75,7 @@ module.exports = function creerQuotas(dir, env) {
   // Grade deduit du total investi, publie par le bot Discord depuis le
   // state.yml du plugin. Fichier absent = tout le monde est Gambler (repli
   // prudent). Les cles invested sont SANS le point Bedrock (DonutSMP mange le
-  // point du payeur) : on normalise TOUJOURS — l'ancien bot.js ne le faisait
+  // point du payeur) : on normalise TOUJOURS - l'ancien bot.js ne le faisait
   // pas et deux quotas differents s'appliquaient au meme joueur selon la porte.
   function isInvestor(player) {
     const inv = (readJsonLoose(INVESTORS_FILE, {}) || {}).invested || {};
@@ -95,7 +95,7 @@ module.exports = function creerQuotas(dir, env) {
   }
 
   // ce que ce joueur peut encore sortir aujourd'hui : le plus serre entre son
-  // quota personnel et ce qui reste du plafond maison. AFFICHAGE seulement —
+  // quota personnel et ce qui reste du plafond maison. AFFICHAGE seulement -
   // la decision de payer passe par reserve(), sinon deux portes qui lisent le
   // meme reliquat au meme instant le depensent chacune (check-then-act).
   function dailyRemaining(player, treasury) {

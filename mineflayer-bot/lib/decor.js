@@ -1,6 +1,6 @@
 // ============================================================
 //  decor : tout ce que le bridge pousse cote serveur qui n'est PAS de
-//  l'argent — whitelist, statut du PNJ bot, leaderboard, podium,
+//  l'argent - whitelist, statut du PNJ bot, leaderboard, podium,
 //  hologramme de la caisse. Logique reprise a l'identique de l'ancien
 //  bridge.js, juste sortie de la boucle d'argent : une erreur de
 //  decor ne doit jamais interrompre une phase bancaire, et ces phases

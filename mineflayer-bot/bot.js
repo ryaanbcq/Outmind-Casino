@@ -118,7 +118,7 @@ if (!bankStateExisted && bankState.payoutOffset === 0) {
     const n = fs.readFileSync(PAYOUTS_FILE, 'utf8').split('\n').filter((l) => l.trim()).length;
     if (n > 0) {
       bankState.payoutOffset = n;
-      const texte = `[bot] bank-state.json absent avec ${n} paiements d'historique : offset cale en fin, AUCUN rejeu — verifier a la main s'il restait des dettes impayees`;
+      const texte = `[bot] bank-state.json absent avec ${n} paiements d'historique : offset cale en fin, AUCUN rejeu - verifier a la main s'il restait des dettes impayees`;
       console.warn(texte);
       try { fs.appendFileSync(ALERTS_FILE, JSON.stringify({ at: Date.now(), text: texte }) + '\n'); } catch {}
     }
@@ -158,7 +158,7 @@ function logSys(line) {
 // ---------- montants et plafonds : lib/money + lib/quotas ----------
 // L'argent sort par DEUX portes : le cashout (plugin -> bridge) et le retrait
 // par MP « pay me » (ici). Les quotas viennent du MEME module que le bridge,
-// compteur commun daily-cap.json ecrit sous verrou — fini les copies qui
+// compteur commun daily-cap.json ecrit sous verrou - fini les copies qui
 // divergent (isInvestor ne normalisait pas le point Bedrock de ce cote).
 const isInvestor = (player) => quotas.isInvestor(player);
 const playerDailyMax = (player) => quotas.playerDailyMax(player);
@@ -395,13 +395,13 @@ function createBot() {
     } catch (e) {
       // le paiement Donut est DEJA encaisse : si le credit echoue (verrou
       // bloque, fichier corrompu), la trace part dans un journal dedie + une
-      // alerte, pour un credit manuel — jamais un depot avale en silence
+      // alerte, pour un credit manuel - jamais un depot avale en silence
       console.error(`[banque] DEPOT NON CREDITE ${payer} ${fmt(amount)} : ${e.message}`);
       try {
         fs.appendFileSync(path.join(__dirname, 'deposits-failed.jsonl'),
           JSON.stringify({ at: new Date().toISOString(), payer, amount, error: e.message }) + '\n');
         fs.appendFileSync(ALERTS_FILE,
-          JSON.stringify({ at: Date.now(), text: `[bot] depot NON credite : ${payer} ${fmt(amount)} (${e.message}) — voir deposits-failed.jsonl, credit manuel requis` }) + '\n');
+          JSON.stringify({ at: Date.now(), text: `[bot] depot NON credite : ${payer} ${fmt(amount)} (${e.message}) - voir deposits-failed.jsonl, credit manuel requis` }) + '\n');
       } catch {}
       return;
     }
@@ -433,7 +433,7 @@ function createBot() {
   function handleWithdraw(player, arg) {
     if (bankFrozen() || bridgeStale()) {
       // banque gelee ou bridge muet : les soldes peuvent ignorer des pertes en
-      // jeu pas encore consommees — payer maintenant serait une double depense
+      // jeu pas encore consommees - payer maintenant serait une double depense
       msgTo(player, `Withdrawals are paused for a few minutes (bank maintenance). Your balance is safe, try again shortly.`);
       console.log(`[banque] retrait refuse (${bankFrozen() ? 'banque gelee' : 'bridge muet'}) : ${player}`);
       return;
@@ -531,7 +531,7 @@ function createBot() {
 
   // Fenetre "in-flight" : un /pay vient de partir, sa confirmation peut mettre
   // quelques secondes (file d'envoi a 1,5 s/msg). Pendant ce temps, AUCUN
-  // re-envoi, meme force — sans ce plancher, un simple whisper du joueur
+  // re-envoi, meme force - sans ce plancher, un simple whisper du joueur
   // re-declenchait processPayouts(force) et re-payait le meme retrait (revue
   // 2026-08-30, finding critique : 3 paiements pour un debit).
   const PAYOUT_INFLIGHT_MS = 90 * 1000;
@@ -550,7 +550,7 @@ function createBot() {
       if (now - (p.lastTry || 0) < PAYOUT_INFLIGHT_MS) continue; // /pay en vol, on attend sa confirmation
       if (p.suspect) {
         // un /pay est parti juste avant une deconnexion, sans confirmation :
-        // il a peut-etre ete PAYE. Re-payer a l'aveugle serait le vrai risque —
+        // il a peut-etre ete PAYE. Re-payer a l'aveugle serait le vrai risque -
         // verification humaine (transactions Donut) avant toute relance.
         if (!p.alerted) {
           p.alerted = true;
@@ -1022,7 +1022,7 @@ function createBot() {
     if (paid) {
       // les entrees PARQUEES (suspect/alerted) ne matchent qu'en dernier
       // recours : sinon la confirmation d'un admin pay de rattrapage soldait
-      // la vieille entree parquee et laissait la neuve repartir en retry —
+      // la vieille entree parquee et laissait la neuve repartir en retry -
       // joueur paye deux fois (contre-verif 2026-08-30)
       const chercher = (pred) => bankState.pendingPayouts.findIndex((p) =>
         pred(p)

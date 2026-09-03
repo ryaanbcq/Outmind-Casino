@@ -12,7 +12,7 @@ import java.util.UUID;
 /**
  * Session d'un duel joueur contre joueur : le pendant de {@link SessionPartie}
  * avec deux humains. Le premier joueur (le provocateur) occupe le role
- * {@link Acteur#JOUEUR}, le second le role {@link Acteur#DEALER} — le moteur
+ * {@link Acteur#JOUEUR}, le second le role {@link Acteur#DEALER} - le moteur
  * ne connait que ces deux roles, la table ne change pas.
  */
 final class SessionDuel {

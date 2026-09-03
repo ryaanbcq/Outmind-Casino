@@ -71,7 +71,7 @@ const adminOrders = require('./lib/admin-orders')({ dir: DIR, ledger, quotas, gu
 
 // ---------- etat du bridge ----------
 // bridge-state.json n'a QU'UN ecrivain (ce process) : pas de verrou, mais
-// lecture stricte — un state corrompu relu comme vide remettrait outboxOffset
+// lecture stricte - un state corrompu relu comme vide remettrait outboxOffset
 // a 0 et rejouerait TOUT l'historique de l'outbox (des annees de deltas et de
 // cashouts). Fail-stop obligatoire.
 const STATE_DEFAULTS = { nextSeq: 1, mirrored: {}, outboxOffset: 0, retryAfter: {}, pluginLastSeq: 0 };
@@ -82,14 +82,14 @@ try {
   bals0 = ledger.load();
 } catch (e) {
   if (e instanceof CorruptStateError) {
-    alert('boot-corrupt', `DEMARRAGE REFUSE : ${e.message}. La banque ne tourne pas sur un etat illisible — restaurer depuis backups/ puis relancer.`, 0);
+    alert('boot-corrupt', `DEMARRAGE REFUSE : ${e.message}. La banque ne tourne pas sur un etat illisible - restaurer depuis backups/ puis relancer.`, 0);
     console.error(`[bridge] ${e.message}`);
     process.exit(1);
   }
   throw e;
 }
 // coherence croisee : un grand livre vide avec un miroir plein, c'est un
-// balances.json perdu — la reconciliation debiterait tout le monde en jeu
+// balances.json perdu - la reconciliation debiterait tout le monde en jeu
 if (Object.keys(bals0).length === 0 && Object.keys(state.mirrored).some((p) => Math.abs(state.mirrored[p]) >= 1)) {
   alert('boot-divergence', 'DEMARRAGE REFUSE : balances.json est vide mais le miroir ne l\'est pas. Restaurer balances.json depuis backups/ avant de relancer.', 0);
   console.error('[bridge] balances.json vide mais mirrored non vide : arret.');
@@ -162,7 +162,7 @@ function processOutboxLine(o, ctx) {
     // credit inbox de la difference).
     const asked = o.amount;
     // Compte GELE par le coupe-circuit : si une vraie boucle a fabrique de
-    // l'argent, il est dans son VAULT — le laisser cashout, c'est encaisser
+    // l'argent, il est dans son VAULT - le laisser cashout, c'est encaisser
     // l'incident. Rien n'est paye : tout revient sur son solde casino, qui
     // sera pousse en jeu au degel (refund attendu). Message clair au joueur.
     if (guard.isFrozenPlayer(state, o.player)) {
@@ -178,7 +178,7 @@ function processOutboxLine(o, ctx) {
       return;
     }
     // reservation ATOMIQUE du quota : lecture du reliquat, decision et
-    // increment dans le meme verrou — les deux portes de sortie ne peuvent
+    // increment dans le meme verrou - les deux portes de sortie ne peuvent
     // plus depenser le meme reliquat en parallele
     const pay = quotas.reserve(o.player, asked, treasuryNow());
     const refund = asked - pay;
@@ -195,7 +195,7 @@ function processOutboxLine(o, ctx) {
 
     if (pay > 0) {
       // INVARIANT VITAL : bals et mirrored descendent du MEME montant, SANS
-      // plancher a 0 — un bals negatif est une dette de stats, pas un ecart
+      // plancher a 0 - un bals negatif est une dette de stats, pas un ecart
       // (incident 2026-08-29 : 2x70M fantomes pousses a a player parce que
       // le clamp faisait diverger les deux).
       ledger.mutate('cashout', (bals, note) => {
@@ -287,7 +287,7 @@ function processOutboxLine(o, ctx) {
     // si cet echec concerne une entree du lot ENCORE EN VOL (ecriture ambigue
     // lue par le plugin avant notre commit), on le note sur le lot : son
     // commit gardera le retryAfter et n'inscrira pas la poussee au journal du
-    // coupe-circuit — sinon le retry repartait aussitot et R2 gelait a tort
+    // coupe-circuit - sinon le retry repartait aussitot et R2 gelait a tort
     if (state.pendingBatch && state.pendingBatch.entries.some((e) => e.seq === o.seq)) {
       state.pendingBatch.appliedFailed = state.pendingBatch.appliedFailed || {};
       state.pendingBatch.appliedFailed[o.seq] = true;
@@ -453,8 +453,8 @@ async function tick() {
     // 2) reconciliation du grand livre -> inbox, par LOT WRITE-AHEAD.
     //
     // Le lot (seqs + montants + effets miroir) est persiste dans l'etat AVANT
-    // l'ecriture de l'inbox. Si l'ecriture echoue — y compris le cas ambigu ou
-    // wings a ecrit le fichier mais repond 502 — le MEME lot repart au tick
+    // l'ecriture de l'inbox. Si l'ecriture echoue - y compris le cas ambigu ou
+    // wings a ecrit le fichier mais repond 502 - le MEME lot repart au tick
     // suivant avec les MEMES seqs : le plugin deduplique par seq <= lastSeq,
     // donc exactly-once quoi qu'il arrive. C'est le correctif du finding
     // critique de la revue 2026-08-30 (re-poussee sous un seq neuf = argent
@@ -484,7 +484,7 @@ async function tick() {
         // part de refund ATTENDUE (cashout plafonne) : elle est DUE, elle
         // court-circuite le coupe-circuit et n'entre pas dans son journal.
         // Elle est consommee MEME quand la poussee est fusionnee avec un
-        // autre ecart (depot, credit admin) — sinon le reliquat fuyait et
+        // autre ecart (depot, credit admin) - sinon le reliquat fuyait et
         // offrait un bypass permanent (contre-verification 2026-08-30).
         const expect = (state.refundExpect || {})[player] || 0;
         if (expect > 0) {
@@ -596,7 +596,7 @@ async function tick() {
   report.maybeDailyReport(state, { bals: balsDecor, bankState });
 
   // lot d'inbox en vol depuis trop longtemps = les ecritures echouent en
-  // boucle : depots, refunds et statuts PAID sont retenus — un humain doit voir
+  // boucle : depots, refunds et statuts PAID sont retenus - un humain doit voir
   if (state.pendingBatch && Date.now() - state.pendingBatch.at > 5 * 60 * 1000) {
     alert('batch-bloque',
       `le lot de reconciliation (${state.pendingBatch.entries.length} poussee(s)) n'arrive pas a s'ecrire depuis ${Math.round((Date.now() - state.pendingBatch.at) / 60000)} min : panel en panne d'ecriture ? Rien n'est perdu, il repart a chaque tick.`,
@@ -613,7 +613,7 @@ async function tick() {
   for (const p of (bankState.pendingPayouts || [])) {
     if ((p.tries || 0) > 3 || p.suspect) {
       const motif = p.suspect
-        ? `/pay parti sans confirmation avant une coupure — il a PEUT-ETRE ete paye, verifier l'historique Donut avant de solder`
+        ? `/pay parti sans confirmation avant une coupure - il a PEUT-ETRE ete paye, verifier l'historique Donut avant de solder`
         : `${p.tries} essais sans confirmation`;
       alert(`payout-mort-${p.player}-${p.amount}`,
         `cashout en attente d'un humain : ${p.player} ${fmtExact(p.amount)} (${motif}, depuis le ${new Date(p.at).toISOString().slice(0, 10)}). `
