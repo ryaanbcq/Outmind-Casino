@@ -125,6 +125,37 @@ function documents(live) {
       },
     },
 
+    // --------------------------------------------------------------- #game-odds
+    // Les cotes publiees. Chiffres mesures le 2026-09-03 : Buckshot au vrai
+    // moteur (200 000 parties par strategie, harness scratchpad/bucksim),
+    // le reste lu dans les configs de prod. A RESYNCHRONISER si une config
+    // de jeu change (Vegas config.yml, chargeur Buckshot, CHAIN_DOUBLE_CHANCE).
+    {
+      key: 'odds',
+      channels: ['game-odds', 'odds', 'why-us'],
+      embed: {
+        color: COLOR,
+        title: 'The odds, published',
+        description:
+          'Every casino has an edge, that is how the vault stays solvent. Ours is written down, per game, ' +
+          'as long-run return per $1 played. No other Minecraft casino shows you this line. ' +
+          'The code that moves the money is public, so these numbers can be checked instead of believed.',
+        fields: [
+          { name: "Donut's Buckshot", value:
+            'Measured by simulation on the actual game engine, 200,000 games per strategy. ' +
+            'A skilled player who plays the items well returns about **$0.84** going for the full x5, ' +
+            'and cashing out after round 1 returns up to **$0.87**. Skill matters: careless play returns far less.', inline: false },
+          { name: 'Chain (Discord)', value: '40% to double your stake, paid instantly. Returns **$0.80**. The roll is cryptographic randomness, not a game state anyone can nudge.', inline: true },
+          { name: 'Roulette (casino floor)', value: '37 slots. Single number or green pays 36x, red or black pays 2x. Returns **$0.973**, the classic European edge.', inline: true },
+          { name: 'Vegas roulette', value: 'Easy 30% for x3, medium 15% for x6, hard 9% for x10. All three return **$0.90**.', inline: true },
+          { name: 'Horse race', value: '30% for x3. Returns **$0.90**.', inline: true },
+          { name: 'Crash (Vegas)', value: 'Cash out early around x1.2 and the long-run return is about **$0.89**. The greedier the target, the bigger the house edge. Crashing is part of the game.', inline: true },
+          { name: 'Blackjack', value: 'The dealer plays his cards like everyone else, no forced hand, and stands on 17. Blackjack pays 3:2.', inline: true },
+          { name: 'Check us', value: 'The bank, the bridge and the Buckshot engine are open source: https://github.com/ryaanbcq/Outmind-Casino. The odds above were tightened on 2026-09-03, in your favor.', inline: false },
+        ],
+      },
+    },
+
     // -------------------------------------------------------------- #beta-test
     // publie seulement quand l'auto-depot est ouvert (AUTODEPOSIT_ENABLED=on)
     ...(live.autodepositOn ? [{
