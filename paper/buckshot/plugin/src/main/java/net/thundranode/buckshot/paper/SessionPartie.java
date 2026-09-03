@@ -16,6 +16,13 @@ final class SessionPartie {
     private final Set<BukkitTask> taches = new HashSet<>();
     private boolean verrouille = true;
     private boolean annulee;
+    /**
+     * Vrai des que le sort de la mise est tranche : round perdu (mise
+     * perdue) ou gain paye. Plus aucun remboursement ne doit passer ensuite,
+     * sinon une mort volontaire pendant la cinematique ou la fenetre de fin
+     * rendrait la mise PAR-DESSUS le gain deja verse.
+     */
+    private boolean reglee;
     private Acteur pompe;
 
     SessionPartie(UUID joueurId, MoteurPartie moteur) {
@@ -29,6 +36,13 @@ final class SessionPartie {
     boolean verrouille() { return verrouille; }
     void verrouiller(boolean valeur) { verrouille = valeur; }
     boolean annulee() { return annulee; }
+    boolean reglee() { return reglee; }
+    void regler() { reglee = true; }
+
+    /** Remboursement effectif : jamais une fois la partie reglee. */
+    boolean rembourserAutorise(boolean demande) {
+        return demande && !reglee;
+    }
 
     /** Demande une pompe avant que la suite du tour reprenne. */
     void demanderPompe(Acteur acteur) { pompe = acteur; }

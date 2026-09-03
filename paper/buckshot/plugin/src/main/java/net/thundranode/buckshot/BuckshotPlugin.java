@@ -442,9 +442,21 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                 // Le bouton JOIN du chat porte le nom du provocateur : c'est
                 // lui qui designe la table, le joueur peut cliquer depuis
                 // n'importe ou (l'installation le teleporte).
-                TableJeu visee = args.length >= 3 ? tableDefiDe(args[2]) : null;
-                if (visee == null && tableDuel != null
-                        && tableDuel.duel().nomDefi() != null) {
+                if (args.length >= 3) {
+                    // Nom donne : c'est CE defi ou rien. Pas de repli vers
+                    // un autre defi, sinon un clic sur un JOIN perime
+                    // ferait payer une mise pour un adversaire non choisi.
+                    TableJeu visee = tableDefiDe(args[2]);
+                    if (visee == null) {
+                        joueur.sendMessage(Component.text("That challenge is gone.",
+                                NamedTextColor.RED));
+                        return true;
+                    }
+                    visee.duel().accepter(joueur, args[2]);
+                    return true;
+                }
+                TableJeu visee = null;
+                if (tableDuel != null && tableDuel.duel().nomDefi() != null) {
                     visee = tableDuel;
                 }
                 if (visee == null) visee = seuleTableAvecDefi(joueur);

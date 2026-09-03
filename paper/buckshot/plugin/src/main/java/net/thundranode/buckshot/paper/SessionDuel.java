@@ -42,6 +42,11 @@ final class SessionDuel {
     boolean reglee() { return reglee; }
     void regler() { reglee = true; }
 
+    /** Remboursement effectif : jamais une fois le pot paye. */
+    boolean rembourserAutorise(boolean demande) {
+        return demande && !reglee;
+    }
+
     UUID joueurId(Acteur acteur) {
         return acteur == Acteur.JOUEUR ? joueur1 : joueur2;
     }

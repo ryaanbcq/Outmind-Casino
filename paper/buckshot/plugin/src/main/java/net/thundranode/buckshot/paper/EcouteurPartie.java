@@ -3,6 +3,7 @@ package net.thundranode.buckshot.paper;
 import net.thundranode.buckshot.jeu.Cible;
 import net.thundranode.buckshot.jeu.Objet;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
@@ -195,7 +196,7 @@ public final class EcouteurPartie implements Listener {
      * joueur peut parler. La validation et le debit se font sur le thread
      * serveur, dans placerMise.
      */
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void miseAuChat(io.papermc.paper.event.player.AsyncChatEvent evenement) {
         org.bukkit.entity.Player joueur = evenement.getPlayer();
         if (!controleur.attendMise(joueur.getUniqueId())) return;
@@ -286,12 +287,25 @@ public final class EcouteurPartie implements Listener {
         }
     }
 
+    /**
+     * Mort d'un joueur assis, ou mort de fin de partie infligee par le
+     * controleur : l'inventaire (deja rendu, ou rendu ici par annuler) est
+     * garde et rien ne tombe au sol -- l'evenement de mort vide l'inventaire
+     * APRES les ecouteurs, et tous les mondes n'ont pas keepInventory.
+     */
     @EventHandler
     public void mort(PlayerDeathEvent evenement) {
-        if (controleur.estEnPartie(evenement.getEntity().getUniqueId())) {
-            evenement.getDrops().removeIf(controleur.inventaire()::estItemDePartie);
-            controleur.annuler(evenement.getEntity().getUniqueId(),
-                    "Game cancelled on your death.", true);
+        java.util.UUID id = evenement.getEntity().getUniqueId();
+        if (!controleur.estEnPartie(id) && !controleur.mortProgrammee(id)) return;
+        evenement.setKeepInventory(true);
+        evenement.setKeepLevel(true);
+        evenement.getDrops().clear();
+        evenement.setDroppedExp(0);
+        if (controleur.estEnPartie(id)) {
+            // Forfait, jamais un remboursement : avant le verdict la mise
+            // est perdue comme en duel, apres le verdict elle est deja
+            // reglee (gain paye ou mise perdue) et annuler la retient.
+            controleur.annuler(id, "Game forfeited on your death.", false);
         }
     }
 
@@ -300,9 +314,50 @@ public final class EcouteurPartie implements Listener {
         controleur.annuler(evenement.getPlayer().getUniqueId(), null);
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     public void expulse(PlayerKickEvent evenement) {
         controleur.annuler(evenement.getPlayer().getUniqueId(), null);
+    }
+
+    /**
+     * Aucune teleportation exterieure d'un joueur assis : un warp vers un
+     * autre monde en plein tour faisait planter l'arithmetique de Location
+     * de la scene et annulait la partie -- avec remboursement, donc une
+     * sortie gratuite pour un joueur en train de perdre. Les teleports du
+     * plugin passent par {@link TeleportAutorise} ; ceux du mode spectateur
+     * (cinematique de chute) viennent du serveur lui-meme.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void teleporter(PlayerTeleportEvent evenement) {
+        if (!controleur.estEnPartie(evenement.getPlayer().getUniqueId())) return;
+        if (TeleportAutorise.estAutorise(evenement.getPlayer().getUniqueId())) return;
+        if (evenement.getCause() == PlayerTeleportEvent.TeleportCause.SPECTATE) return;
+        evenement.setCancelled(true);
+    }
+
+    /**
+     * Seules /rr et /leave restent ouvertes a un joueur assis (les admins
+     * gardent tout) : /spawn, /warp, /home et consorts sont des sorties de
+     * table hors circuit.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void commande(PlayerCommandPreprocessEvent evenement) {
+        if (!controleur.estEnPartie(evenement.getPlayer().getUniqueId())) return;
+        if (evenement.getPlayer().hasPermission("buckshot.admin")) return;
+        if (commandeAutorisee(evenement.getMessage())) return;
+        evenement.setCancelled(true);
+        evenement.getPlayer().sendMessage(net.kyori.adventure.text.Component.text(
+                "Only /rr and /leave are allowed during a game.",
+                net.kyori.adventure.text.format.NamedTextColor.RED));
+    }
+
+    /** /rr, /leave, avec ou sans prefixe de plugin (buckshot:rr), sans casse. */
+    static boolean commandeAutorisee(String message) {
+        String texte = message.startsWith("/") ? message.substring(1) : message;
+        String premier = texte.trim().split("\\s+", 2)[0].toLowerCase(java.util.Locale.ROOT);
+        int deuxPoints = premier.indexOf(':');
+        if (deuxPoints >= 0) premier = premier.substring(deuxPoints + 1);
+        return premier.equals("rr") || premier.equals("leave");
     }
 
     @EventHandler

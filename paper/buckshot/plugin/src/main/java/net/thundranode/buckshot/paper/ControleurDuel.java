@@ -10,7 +10,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.util.Random;
 import java.util.UUID;
 
 /**
@@ -50,7 +49,8 @@ public final class ControleurDuel {
     private final Banque banque;
     private final MiseEnScene scene;
     private final BarreVie barreVie;
-    private final Random aleatoire = new Random();
+    /** SecureRandom : l'ordre du chargeur est de l'argent, un Random nu se predit. */
+    private final java.security.SecureRandom aleatoire = new java.security.SecureRandom();
     private final int loupeTenueTicks;
 
     private SessionDuel session;
@@ -151,6 +151,10 @@ public final class ControleurDuel {
 
     /** /rr duel <montant> : pose un defi sur la table, mise debitee d'avance. */
     public void proposer(Player joueur, long montant) {
+        if (joueur.isDead()) {
+            joueur.sendMessage(Component.text("You cannot duel while dead.", NamedTextColor.RED));
+            return;
+        }
         if (occupeAilleurs != null && occupeAilleurs.test(joueur.getUniqueId())) {
             joueur.sendMessage(Component.text("You are already in a game.", NamedTextColor.RED));
             return;
@@ -281,9 +285,27 @@ public final class ControleurDuel {
 
     /** /rr duel accepter : debite l'accepteur et lance le duel. */
     public void accepter(Player joueur) {
+        accepter(joueur, null);
+    }
+
+    /**
+     * {@code nomChallenger} : nom porte par le bouton JOIN, ou null si tape
+     * a la main. S'il est donne, il doit designer LE defi en attente ici :
+     * un defi remplace entre le clic et son traitement ne se fait pas
+     * accepter par erreur (et payer) a la place de l'autre.
+     */
+    public void accepter(Player joueur, String nomChallenger) {
         if (defi == null) {
             joueur.sendMessage(Component.text("No duel to accept here. /rr duel <amount> to start one.",
                     NamedTextColor.RED));
+            return;
+        }
+        if (nomChallenger != null && !nomChallenger.equalsIgnoreCase(defi.nom())) {
+            joueur.sendMessage(Component.text("That challenge is gone.", NamedTextColor.RED));
+            return;
+        }
+        if (joueur.isDead()) {
+            joueur.sendMessage(Component.text("You cannot duel while dead.", NamedTextColor.RED));
             return;
         }
         if (defi.challenger().equals(joueur.getUniqueId())) {
@@ -308,6 +330,11 @@ public final class ControleurDuel {
             defi.expiration().cancel();
             defi = null;
             joueur.sendMessage(Component.text("The challenger is gone.", NamedTextColor.RED));
+            return;
+        }
+        if (challenger.isDead()) {
+            joueur.sendMessage(Component.text("The challenger is dead right now, try again in a moment.",
+                    NamedTextColor.RED));
             return;
         }
         long mise = defi.mise();
@@ -403,7 +430,11 @@ public final class ControleurDuel {
         if (objet == Objet.LOUPE) {
             courante.verrouiller(true);
             joueur.getInventory().setItemInMainHand(Fusil.creer());
-            String vue = Animateur.inspection(chambreVue(action, acteur));
+            // Cartouche NEUTRE dans le port : le custom_model_data de l'item
+            // tenu est visible du client d'en face, la couleur de la charge
+            // trahirait la lecture. Le resultat ne passe que par le message
+            // prive de ChambrePrivee.
+            String vue = Animateur.inspection(null);
             programmer(courante, 1L, () -> animateur.jouerInspection(joueur, loupeTenueTicks, vue));
             posesForcees.add(joueur.getUniqueId());
             scene.montrerPose(joueur, "inspect");
@@ -767,6 +798,15 @@ public final class ControleurDuel {
     }
 
     /**
+     * Vrai pendant la mort du perdant infligee par {@link #tuerPourDeVrai} :
+     * l'inventaire reel est deja rendu, l'ecouteur le garde et vide les
+     * drops (les mondes sans keepInventory feraient tomber ses objets).
+     */
+    public boolean mortProgrammee(UUID joueurId) {
+        return respawnsDiriges.containsKey(joueurId);
+    }
+
+    /**
      * Demontage du duel : taches, ecrans, inventaires, coeurs, et DrDonutt
      * reprend sa place. {@code rembourser} : fin technique, chaque joueur
      * reprend SA mise (jamais le pot).
@@ -776,7 +816,7 @@ public final class ControleurDuel {
         if (courante == null) return;
         // Pot deja paye : plus aucun remboursement, sous peine de creer de
         // l'argent (pot au gagnant PUIS mises rendues aux deux).
-        boolean rendreLesMises = rembourser && !courante.reglee();
+        boolean rendreLesMises = courante.rembourserAutorise(rembourser);
         courante.annuler();
         if (suiviVisee != null) { suiviVisee.cancel(); suiviVisee = null; }
         posesForcees.clear();
@@ -875,8 +915,12 @@ public final class ControleurDuel {
                 try {
                     action.run();
                 } catch (RuntimeException erreur) {
-                    plugin.getLogger().severe("duel " + id + " : " + erreur.getMessage());
-                    annulerDuel("The duel was cancelled after an error.", true);
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                            "duel " + id + " : " + erreur.getMessage(), erreur);
+                    // JAMAIS de remboursement ici : le perdant annonce
+                    // pourrait provoquer l'exception (warp inter-mondes)
+                    // pour reprendre sa mise.
+                    annulerDuel("The duel was cancelled after an error.", false);
                 }
             }
         }, delai);
@@ -887,15 +931,6 @@ public final class ControleurDuel {
         boolean reelle = resultat.evenements().stream()
                 .anyMatch(EvenementPartie.BlackoutDemande.class::isInstance);
         return ChronologieTir.creer(animateur.dureeTicks(visee), reelle, regles.blackoutTicks());
-    }
-
-    private static TypeCartouche chambreVue(ResultatAction action, Acteur acteur) {
-        for (EvenementPartie evenement : action.evenements()) {
-            if (evenement instanceof EvenementPartie.ChambrePrivee e && e.acteur() == acteur) {
-                return e.type();
-            }
-        }
-        return null;
     }
 
     private double rayonTemoins() {

@@ -3,6 +3,7 @@ package net.thundranode.buckshot.paper;
 import net.thundranode.buckshot.jeu.Cible;
 import net.thundranode.buckshot.jeu.Objet;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
@@ -188,10 +189,17 @@ public final class EcouteurDuel implements Listener {
      */
     @EventHandler
     public void mort(PlayerDeathEvent evenement) {
-        if (controleur.estEnPartie(evenement.getEntity().getUniqueId())) {
-            evenement.getDrops().removeIf(controleur.inventaire()::estItemDePartie);
-            controleur.forfait(evenement.getEntity().getUniqueId(),
-                    evenement.getEntity().getName() + " died mid-duel.");
+        java.util.UUID id = evenement.getEntity().getUniqueId();
+        if (!controleur.estEnPartie(id) && !controleur.mortProgrammee(id)) return;
+        // Inventaire reel garde (rendu par le forfait ci-dessous, ou deja
+        // rendu avant la mort de fin de duel) et rien au sol : la mort
+        // vanilla vide l'inventaire APRES les ecouteurs.
+        evenement.setKeepInventory(true);
+        evenement.setKeepLevel(true);
+        evenement.getDrops().clear();
+        evenement.setDroppedExp(0);
+        if (controleur.estEnPartie(id)) {
+            controleur.forfait(id, evenement.getEntity().getName() + " died mid-duel.");
         }
     }
 
@@ -202,11 +210,48 @@ public final class EcouteurDuel implements Listener {
                 evenement.getPlayer().getName() + " left the duel.");
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     public void expulse(PlayerKickEvent evenement) {
         controleur.challengerParti(evenement.getPlayer());
         controleur.forfait(evenement.getPlayer().getUniqueId(),
                 evenement.getPlayer().getName() + " left the duel.");
+    }
+
+    /**
+     * Aucune teleportation exterieure d'un joueur assis : un warp vers un
+     * autre monde en plein tour faisait planter l'arithmetique de Location
+     * de la scene et annulait la partie -- avec remboursement, donc une
+     * sortie gratuite pour un joueur en train de perdre. Les teleports du
+     * plugin passent par {@link TeleportAutorise} ; ceux du mode spectateur
+     * (cinematique de chute) viennent du serveur lui-meme.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void teleporter(PlayerTeleportEvent evenement) {
+        if (!controleur.estEnPartie(evenement.getPlayer().getUniqueId())) return;
+        if (TeleportAutorise.estAutorise(evenement.getPlayer().getUniqueId())) return;
+        if (evenement.getCause() == PlayerTeleportEvent.TeleportCause.SPECTATE) return;
+        evenement.setCancelled(true);
+    }
+
+    /**
+     * Seules /rr et /leave restent ouvertes a un joueur assis (les admins
+     * gardent tout) : /spawn, /warp, /home et consorts sont des sorties de
+     * table hors circuit.
+     */
+    @EventHandler(ignoreCancelled = true)
+    public void commande(PlayerCommandPreprocessEvent evenement) {
+        if (!controleur.estEnPartie(evenement.getPlayer().getUniqueId())) return;
+        if (evenement.getPlayer().hasPermission("buckshot.admin")) return;
+        if (commandeAutorisee(evenement.getMessage())) return;
+        evenement.setCancelled(true);
+        evenement.getPlayer().sendMessage(net.kyori.adventure.text.Component.text(
+                "Only /rr and /leave are allowed during a game.",
+                net.kyori.adventure.text.format.NamedTextColor.RED));
+    }
+
+    /** Meme liste blanche que le solo. */
+    private static boolean commandeAutorisee(String message) {
+        return EcouteurPartie.commandeAutorisee(message);
     }
 
     @EventHandler

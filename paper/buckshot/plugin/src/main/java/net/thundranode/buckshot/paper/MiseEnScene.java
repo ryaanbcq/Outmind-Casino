@@ -740,7 +740,9 @@ public final class MiseEnScene implements ScenePartie {
 
     @Override
     public void installerJoueur(Player joueur) {
-        joueur.teleport(config.placeJoueur());
+        // La session est deja posee : le teleport doit etre marque comme
+        // venant du plugin, sinon l'ecouteur anti-warp l'annule.
+        TeleportAutorise.pendant(joueur, () -> joueur.teleport(config.placeJoueur()));
         joueur.setRotation(config.yaw(), 0);
     }
 
@@ -830,7 +832,7 @@ public final class MiseEnScene implements ScenePartie {
         Location place = config.placeDealer().clone();
         place.setYaw(config.yaw() + 180.0f);
         place.setPitch(0);
-        joueur.teleport(place);
+        TeleportAutorise.pendant(joueur, () -> joueur.teleport(place));
     }
 
     /** Les coeurs du second joueur, meme ligne que ceux du premier mais a la
@@ -1513,6 +1515,10 @@ public final class MiseEnScene implements ScenePartie {
         Player source = acteur == Acteur.DEALER ? dealer.entite().orElse(humain) : humain;
         if (source == null) return;
         Location centre = config.centre();
+        // Tireur dans un autre monde que la table (warp en plein tour) :
+        // Location.add entre deux mondes leve une exception qui annulait la
+        // partie. Pas de douille, mais la partie continue.
+        if (!source.getWorld().equals(centre.getWorld())) return;
         float rotation = (float) Math.toRadians(-config.yaw());
         double cos = Math.cos(rotation), sin = Math.sin(rotation);
         // Depart : la main du tireur. Arrivee : un point du feutre de son

@@ -39,6 +39,15 @@ public final class InventairePartie {
     public void sauvegarder(Player joueur, UUID session) {
         YamlConfiguration yaml = charger();
         String base = joueur.getUniqueId().toString();
+        // Une entree existante est le VRAI inventaire du joueur (elle ne
+        // disparait qu'a la restauration) : l'ecraser en pleine partie
+        // sauverait la hotbar de jeu a sa place. On garde la premiere.
+        if (yaml.isConfigurationSection(base)) {
+            plugin.getLogger().warning("[Buckshot] sauvegarde ignoree pour " + joueur.getName()
+                    + " : une entree de recuperation existe deja (session "
+                    + yaml.getString(base + ".session") + ")");
+            return;
+        }
         yaml.set(base + ".session", session.toString());
         yaml.set(base + ".storage", encoder(joueur.getInventory().getStorageContents()));
         yaml.set(base + ".armor", encoder(joueur.getInventory().getArmorContents()));
@@ -105,9 +114,12 @@ public final class InventairePartie {
                 UUID mondeId = UUID.fromString(loc.getString("world"));
                 var monde = Bukkit.getWorld(mondeId);
                 if (monde != null) {
-                    joueur.teleport(new Location(monde, loc.getDouble("x"), loc.getDouble("y"),
+                    Location retour = new Location(monde, loc.getDouble("x"), loc.getDouble("y"),
                             loc.getDouble("z"), (float) loc.getDouble("yaw"),
-                            (float) loc.getDouble("pitch")));
+                            (float) loc.getDouble("pitch"));
+                    // Restauration en fin de partie : la session est encore
+                    // active, l'ecouteur annulerait ce teleport sans le drapeau.
+                    TeleportAutorise.pendant(joueur, () -> joueur.teleport(retour));
                 }
             }
             yaml.set(base, null);

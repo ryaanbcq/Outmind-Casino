@@ -13,7 +13,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.util.Random;
 import java.util.UUID;
 
 public final class ControleurPartie {
@@ -50,7 +49,8 @@ public final class ControleurPartie {
     private final ScenePartie scene;
     private final BarreVie barreVie;
     private final StrategieDrDonutt strategie = new StrategieDrDonutt();
-    private final Random aleatoire = new Random();
+    /** SecureRandom : l'ordre du chargeur est de l'argent, un Random nu se predit. */
+    private final java.security.SecureRandom aleatoire = new java.security.SecureRandom();
     private final int reflexionMin;
     private final int reflexionMax;
     private final int viseeDealerTicks;
@@ -303,6 +303,9 @@ public final class ControleurPartie {
     private boolean demarrerAvecMise(Player joueur, long mise) {
         if (session != null || tableReserveeAilleurs()
                 || !scene.configuree() || !scene.aPortee(joueur)) return false;
+        // Re-verifie ici et pas seulement a l'invitation : entre la mise
+        // tapee au chat et son traitement, le joueur a pu s'asseoir ailleurs.
+        if (occupeAilleurs != null && occupeAilleurs.test(joueur.getUniqueId())) return false;
         miseCourante = mise;
         if (mise > 0) {
             annoncerTemoins(joueur, Component.text()
@@ -658,6 +661,15 @@ public final class ControleurPartie {
     }
 
     /**
+     * Vrai pendant la mort infligee par {@link #tuerPourDeVrai} (l'evenement
+     * de mort part de facon synchrone dans setHealth(0), avant le respawn) :
+     * l'ecouteur garde l'inventaire deja restaure et vide les drops.
+     */
+    public boolean mortProgrammee(UUID joueurId) {
+        return respawnsDiriges.containsKey(joueurId);
+    }
+
+    /**
      * Gain courant : mise x multiplicateur du dernier round GAGNE (quotas de
      * cashout par round, workflow Outmind user 2026-08-27). Le multiplicateur
      * rend le TOUT, mise comprise : encaisser apres le round 1 a x1.5 rend
@@ -690,6 +702,7 @@ public final class ControleurPartie {
         if (!estEnPartie(joueur.getUniqueId())) return;
         long gain = reprisePendante != null ? gains() : 0;
         if (gain > 0) {
+            session.regler();
             payer(joueur, gain);
             annuler(joueur.getUniqueId(), "You walk away with $"
                     + net.thundranode.buckshot.Mises.formater(gain) + ".");
@@ -875,7 +888,7 @@ public final class ControleurPartie {
                     // micro-mouvement d'interpolation. Sauf Bedrock : sans
                     // attache, le client peut deriver -- re-cloue au sol.
                     if (bedrock && derniere != null && tick % 10 == 0) {
-                        joueur.teleport(derniere);
+                        TeleportAutorise.pendant(joueur, () -> joueur.teleport(derniere));
                     }
                     tick++;
                     return;
@@ -913,7 +926,7 @@ public final class ControleurPartie {
                 camera.teleport(pos);
                 if (bedrock) {
                     derniere = pos;
-                    joueur.teleport(pos);
+                    TeleportAutorise.pendant(joueur, () -> joueur.teleport(pos));
                 }
                 tick++;
             }
@@ -1238,6 +1251,9 @@ public final class ControleurPartie {
                 // de relance, mort immediate. Le moteur a deja prepare le
                 // round suivant, on ne le deroule simplement jamais.
                 if (!partieSeTermine && e.vainqueur() == Acteur.DEALER) {
+                    // La mise est perdue des cet instant : une mort pendant
+                    // la cinematique ne doit plus rien rembourser.
+                    courante.regler();
                     scene.synchroniserMenottes(false, false, joueur);
                     scene.reposerFusil(joueur);
                     cinematiqueChute(courante,
@@ -1260,6 +1276,9 @@ public final class ControleurPartie {
                 }
             } else if (evenement instanceof EvenementPartie.PartieTerminee e) {
                 fin = true;
+                // Verdict tombe : gain paye ci-dessous ou mise perdue, plus
+                // aucun remboursement possible pendant la fenetre de fin.
+                courante.regler();
                 if (e.vainqueur() == Acteur.JOUEUR) {
                     // Le tableau de mort est deja en place (installe sous le
                     // noir par lancerTir) ; la mallette des gains apparait
@@ -1412,8 +1431,12 @@ public final class ControleurPartie {
                 try {
                     action.run();
                 } catch (RuntimeException erreur) {
-                    plugin.getLogger().severe("session " + id + " : " + erreur.getMessage());
-                    annuler(courante.joueurId(), "The game was cancelled after an error.", true);
+                    plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                            "session " + id + " : " + erreur.getMessage(), erreur);
+                    // JAMAIS de remboursement ici : un joueur peut provoquer
+                    // l'exception (warp inter-mondes en plein tour) et
+                    // annulerait ainsi une partie perdue sans rien payer.
+                    annuler(courante.joueurId(), "The game was cancelled after an error.", false);
                 }
             }
         }, delai);
@@ -1439,6 +1462,9 @@ public final class ControleurPartie {
     public void annuler(UUID joueurId, String message, boolean rembourser) {
         SessionPartie courante = session;
         if (courante == null || !courante.joueurId().equals(joueurId)) return;
+        // Partie reglee (round perdu, gain paye) : plus aucun remboursement,
+        // quelle que soit la raison de l'annulation.
+        rembourser = courante.rembourserAutorise(rembourser);
         courante.annuler();
         if (suiviVisee != null) { suiviVisee.cancel(); suiviVisee = null; }
         poseForcee = false;
