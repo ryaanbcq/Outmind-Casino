@@ -219,6 +219,11 @@ function readPteroKeyFromBotEnv() { return readBotEnvKey('PTERO_API_KEY'); }
 const TOKEN = userEnv('DISCORD_BOT_TOKEN');
 const PTERO_API_KEY = process.env.PTERO_API_KEY || readPteroKeyFromBotEnv();
 autodeposit.init({ userEnv });
+// Auto-depot (token Minecraft confie par le joueur) : COUPE par defaut depuis le
+// 2026-09-03 (decision de Ryan). AUTODEPOSIT_ENABLED=on pour le rouvrir. Les
+// autorisations deja chiffrees sur disque restent en place mais inutilisables.
+const AUTODEPOSIT_ON = process.env.AUTODEPOSIT_ENABLED === 'on';
+const AUTODEPOSIT_PAUSED = 'Auto deposit is paused for now. Deposit with `/pay` on DonutSMP as usual.';
 
 if (!TOKEN) { console.error('DISCORD_BOT_TOKEN absent de l\'environnement.'); process.exit(1); }
 if (!PTERO_API_KEY) { console.error('PTERO_API_KEY introuvable.'); process.exit(1); }
@@ -659,7 +664,7 @@ function depositScreen(info, amount) {
   );
   // l'auto deposit n'est pas sur le panneau public : c'est une option
   // d'investisseur, elle vit ici, dans le parcours de depot
-  if (info) {
+  if (info && AUTODEPOSIT_ON) {
     row.addComponents(new ButtonBuilder().setCustomId('oc_auto')
       .setLabel('Auto deposit (Investor)').setStyle(ButtonStyle.Secondary));
   }
@@ -1283,6 +1288,7 @@ async function handleCommand(interaction) {
     if (!isAdmin(interaction)) {
       return interaction.reply({ content: 'Staff only.', flags: MessageFlags.Ephemeral });
     }
+    if (!AUTODEPOSIT_ON) return interaction.reply({ content: AUTODEPOSIT_PAUSED, flags: MessageFlags.Ephemeral });
     return handleBank(interaction);
   }
 
@@ -1488,6 +1494,9 @@ async function handleButton(interaction) {
     return interaction.editReply(depositScreen(info, null));
   }
 
+  if (!AUTODEPOSIT_ON && (id === 'oc_auto_pay' || id.startsWith('oc_auto_do_') || id === 'oc_auto' || id === 'oc_auto_go' || id === 'oc_auto_off')) {
+    return interaction.reply({ content: AUTODEPOSIT_PAUSED, flags: MessageFlags.Ephemeral });
+  }
   if (id === 'oc_auto_pay') {
     if (!linkOf(interaction.user.id)) {
       return interaction.reply({ content: NOT_LINKED, flags: MessageFlags.Ephemeral });
@@ -1577,6 +1586,7 @@ async function handleModal(interaction) {
   }
   if (interaction.customId === 'oc_m_auto') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!AUTODEPOSIT_ON) return interaction.editReply(AUTODEPOSIT_PAUSED);
     const link = linkOf(interaction.user.id);
     if (!link) return interaction.editReply(NOT_LINKED);
     const amount = parseAmount(interaction.fields.getTextInputValue('amount'));
@@ -1807,6 +1817,7 @@ async function doCashout(interaction, amount) {
 // comme pour le cashout : l'autorisation a pu etre revoquee entre temps.
 // onProgress est appele juste avant le paiement (30 a 60 s), pour informer.
 async function autopayCore(discordId, amount, tag, onProgress) {
+  if (!AUTODEPOSIT_ON) return { ok: false, text: AUTODEPOSIT_PAUSED };
   const link = linkOf(discordId);
   if (!link) return { ok: false, text: NOT_LINKED };
   const key = link.player.toLowerCase();
@@ -2590,6 +2601,7 @@ function pitchLive() {
       : `**${Math.round(DAILY_VAULT_PCT * 100)}% of the vault**`,
     vaultPct: Math.round(DAILY_VAULT_PCT * 100) + '%',
     autopayMax: money(AUTOPAY_MAX),
+    autodepositOn: AUTODEPOSIT_ON,
   };
 }
 

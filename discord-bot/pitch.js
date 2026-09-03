@@ -118,7 +118,7 @@ function documents(live) {
           { name: 'Double withdrawal limit', value: `**${live.investorMax}** a day instead of ${live.gamblerMax}. The house cap still applies on top, the same for everyone.`, inline: true },
           { name: 'Investor rank', value: 'In game and on Discord, synced automatically the minute your total crosses the bar.', inline: true },
           { name: 'This category', value: 'A direct line to the staff in **#investors-chat**, and everything announced here first.', inline: true },
-          { name: 'Auto deposit', value: 'Deposit without leaving the game, in one tap. Optional, revocable, and explained in full in **#beta-test**.', inline: false },
+          ...(live.autodepositOn ? [{ name: 'Auto deposit', value: 'Deposit without leaving the game, in one tap. Optional, revocable, and explained in full in **#beta-test**.', inline: false }] : []),
           { name: 'Early access', value: 'New games, new features and changes to the limits are tried with you in **#beta-test** before anyone else sees them.', inline: false },
           { name: 'Why we ask for capital at all', value: `A casino pays winners out of its own pocket, and the size of that pocket is what lets the daily cap stay high. The vault sits at **${live.treasury}** today and covers **${live.coverage}** what players hold. Investors are the reason it can grow without payouts slowing down.`, inline: false },
         ],
@@ -126,7 +126,8 @@ function documents(live) {
     },
 
     // -------------------------------------------------------------- #beta-test
-    {
+    // publie seulement quand l'auto-depot est ouvert (AUTODEPOSIT_ENABLED=on)
+    ...(live.autodepositOn ? [{
       key: 'autodeposit',
       channels: ['beta-test', 'beta'],
       embed: {
@@ -163,7 +164,7 @@ function documents(live) {
       buttons: [
         { id: 'oc_auto', label: 'Set up or manage auto deposit', style: 'primary' },
       ],
-    },
+    }] : []),
   ];
 }
 
