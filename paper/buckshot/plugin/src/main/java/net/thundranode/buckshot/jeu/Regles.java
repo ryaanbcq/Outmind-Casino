@@ -7,7 +7,16 @@ public record Regles(List<Integer> viesParRound,
                      List<PlageChargeur> chargeursParRound,
                      List<Integer> objetsParChargeur,
                      int objetsMax,
-                     int blackoutTicks) {
+                     int blackoutTicks,
+                     List<Integer> poidsObjets) {
+
+    /** Retro-compatible : sans poids, tirage uniforme des objets. */
+    public Regles(List<Integer> viesParRound, int viesPlafond,
+                  List<PlageChargeur> chargeursParRound, List<Integer> objetsParChargeur,
+                  int objetsMax, int blackoutTicks) {
+        this(viesParRound, viesPlafond, chargeursParRound, objetsParChargeur,
+                objetsMax, blackoutTicks, java.util.Collections.nCopies(Objet.values().length, 1));
+    }
 
     /**
      * Fourchette de generation d'un chargeur : le total est tire d'abord,
@@ -44,6 +53,12 @@ public record Regles(List<Integer> viesParRound,
         }
         if (objetsMax < 0 || blackoutTicks <= 0) {
             throw new IllegalArgumentException("objetsMax et blackoutTicks invalides");
+        }
+        poidsObjets = List.copyOf(poidsObjets);
+        if (poidsObjets.size() != Objet.values().length
+                || poidsObjets.stream().anyMatch(w -> w < 0)
+                || poidsObjets.stream().mapToInt(Integer::intValue).sum() <= 0) {
+            throw new IllegalArgumentException("poidsObjets doit donner un poids >= 0 par objet, somme > 0");
         }
     }
 

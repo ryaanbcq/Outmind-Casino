@@ -14,6 +14,17 @@ game:
     round-3: {min: 5, max: 8, reals-min: 3, reals-max: 4}
   items-per-load-by-round: [0, 2, 4]
   max-items: 8
+  # Poids de tirage des objets a chaque distribution (solo et duel).
+  # Menottes et couteau volontairement plus rares (2026-09-03).
+  # Equilibre verifie au moteur (200k parties) : EV joueur inchange (~0.82/0.75/0.83)
+  # tout en divisant presque par deux les menottes. Baisser les menottes/couteau
+  # SANS baisser les cigarettes rend le jeu trop genereux (EV 0.95+).
+  item-weights:
+    cigarettes: 20
+    biere: 26
+    loupe: 28
+    menottes: 12
+    couteau: 14
   blackout-ticks: 40
   dealer-think-min-ticks: 20
   dealer-think-max-ticks: 35

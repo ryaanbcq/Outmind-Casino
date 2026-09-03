@@ -239,7 +239,7 @@ public final class MoteurPartie {
             Participant participant = participant(acteur);
             List<Objet> recus = new ArrayList<>();
             for (int i = 0; i < demandes && participant.placesLibres() > 0; i++) {
-                Objet objet = Objet.values()[aleatoire.nextInt(Objet.values().length)];
+                Objet objet = tirerObjet();
                 participant.ajouterObjet(objet);
                 recus.add(objet);
             }
@@ -247,6 +247,19 @@ public final class MoteurPartie {
                 evenements.add(new EvenementPartie.ObjetsDistribues(acteur, recus));
             }
         }
+    }
+
+    /** Tirage pondere par regles.poidsObjets() (menottes/couteau raréfiables par config). */
+    private Objet tirerObjet() {
+        List<Integer> poids = regles.poidsObjets();
+        int total = 0;
+        for (int w : poids) total += w;
+        int tir = aleatoire.nextInt(total);
+        for (int i = 0; i < poids.size(); i++) {
+            tir -= poids.get(i);
+            if (tir < 0) return Objet.values()[i];
+        }
+        return Objet.LOUPE; // inatteignable
     }
 
     private void terminerRound(Acteur vainqueur, List<EvenementPartie> evenements) {

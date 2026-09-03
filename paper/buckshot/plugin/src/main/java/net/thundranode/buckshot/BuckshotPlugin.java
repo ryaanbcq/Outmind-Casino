@@ -333,8 +333,17 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
         if (rayonDebut <= 0 || rayonFin <= rayonDebut) {
             throw new IllegalArgumentException("rayons de musique invalides");
         }
-        return new Regles(vies, plafond, plages, objets, maximum, blackout);
+        return new Regles(vies, plafond, plages, objets, maximum, blackout, lirePoidsObjets());
     }
+    /** Poids de tirage des objets (game.item-weights.<objet>), 1 partout par defaut. */
+    private List<Integer> lirePoidsObjets() {
+        List<Integer> poids = new java.util.ArrayList<>();
+        for (net.thundranode.buckshot.jeu.Objet o : net.thundranode.buckshot.jeu.Objet.values()) {
+            poids.add(Math.max(0, getConfig().getInt("game.item-weights." + o.name().toLowerCase(java.util.Locale.ROOT), 1)));
+        }
+        return poids;
+    }
+
 
     /**
      * Regles du duel PvP : UN round (le moteur tourne avec roundFinal = 1),
@@ -357,7 +366,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
         int blackout = getConfig().getInt("game.blackout-ticks", 40);
         return new Regles(List.of(vies, vies, vies), vies,
                 List.of(plage, plage, plage), List.of(objets, objets, objets),
-                maximum, blackout);
+                maximum, blackout, lirePoidsObjets());
     }
 
     @Override
