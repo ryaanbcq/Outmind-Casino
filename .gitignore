@@ -1,0 +1,30 @@
+# Secrets and per-machine configuration
+.env
+.env.*
+!.env.example
+ecosystem.config.js
+.auth/
+nmp-cache/
+
+# Runtime state (money ledger, quotas, links, audit trails). Never commit.
+*.json
+!package.json
+!package-lock.json
+*.jsonl
+backups/
+reports/
+logs/
+uploads/
+*.log
+
+# Local backups and scratch
+*.bak
+*.bak-*
+*.done-*
+*.old
+
+# Dependencies and OS noise
+node_modules/
+.DS_Store
+._*
+Thumbs.db

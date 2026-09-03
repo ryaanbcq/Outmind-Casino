@@ -1,0 +1,20 @@
+{
+  "name": "outmind-bank-bot",
+  "version": "1.0.0",
+  "description": "Mineflayer bank bot and Pterodactyl bridge of the Outmind Casino",
+  "scripts": {
+    "check": "node --check bot.js"
+  },
+  "keywords": [],
+  "author": "ryaanbcq",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mineflayer": "^4.37.1"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
+}
