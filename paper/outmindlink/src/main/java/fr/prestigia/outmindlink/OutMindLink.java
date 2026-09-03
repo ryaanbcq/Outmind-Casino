@@ -315,7 +315,7 @@ implements Listener {
 
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         String amountArg;
-        Player target;
+        OfflinePlayer target;
         if (command.getName().equalsIgnoreCase("invest")) {
             if (!(sender instanceof Player)) {
                 sender.sendMessage("Commande joueur uniquement.");
@@ -352,7 +352,7 @@ implements Listener {
         }
         if (sender instanceof Player) {
             Player p;
-            target = p = (Player)sender;
+            target = (Player)sender;
             amountArg = args.length >= 2 ? args[1] : null;
         } else {
             if (args.length < 2) {
@@ -370,7 +370,7 @@ implements Listener {
             }
             amountArg = args.length >= 3 ? args[2] : null;
         }
-        this.doCashout((OfflinePlayer)target, amountArg);
+        this.doCashout(target, amountArg);
         return true;
     }
 
@@ -717,6 +717,64 @@ implements Listener {
         }
     }
 
+    // ---- 2FA : soumission de l'ecran de saisie en jeu ----
+    // Le secret arrive par l'action custom du dialogue (jamais par une commande
+    // ni le chat, qui finissent en clair dans les logs console) et repart vers
+    // le bridge en PRE-HASH sha256 : l'outbox est un fichier append-only
+    // permanent, aucun secret en clair ne doit y entrer. La verification se
+    // fait cote VPS contre le coffre scrypt ; reponse par signaux Skript.
+    @EventHandler
+    public void onTwofaDialog(io.papermc.paper.event.player.PlayerCustomClickEvent e) {
+        String id = e.getIdentifier().asString();
+        boolean pw = id.equals("outmind:twofa_pw");
+        if (!pw && !id.equals("outmind:twofa_q")) {
+            return;
+        }
+        io.papermc.paper.dialog.DialogResponseView view = e.getDialogResponseView();
+        if (view == null) {
+            return;
+        }
+        Player p = e.getCommonConnection() instanceof io.papermc.paper.connection.PlayerGameConnection g ? g.getPlayer() : null;
+        if (p == null) {
+            return;
+        }
+        String s1 = view.getText("secret1");
+        if (s1 == null || s1.isBlank()) {
+            return;
+        }
+        JsonObject o;
+        if (pw) {
+            o = this.obj("type", "twofa", "player", p.getName(), "h1", OutMindLink.sha256(s1));
+        } else {
+            String s2 = view.getText("secret2");
+            if (s2 == null || s2.isBlank()) {
+                return;
+            }
+            o = this.obj("type", "twofa", "player", p.getName(), "h1", OutMindLink.sha256(OutMindLink.normaliserReponse(s1)), "h2", OutMindLink.sha256(OutMindLink.normaliserReponse(s2)));
+        }
+        this.appendOutbox(o);
+        p.sendMessage("\u00a7x\u00a7A\u00a71\u00a78\u00a7C\u00a7D\u00a71\u00a7lOutmind Casino \u00a7f\u00a7lChecking your 2FA...");
+    }
+
+    // meme normalisation que lib/twofa.js cote VPS (minuscule, accents, espaces)
+    private static String normaliserReponse(String a) {
+        return java.text.Normalizer.normalize(a.toLowerCase(java.util.Locale.ROOT), java.text.Normalizer.Form.NFD).replaceAll("[\u0300-\u036f]", "").replaceAll("\s+", " ").trim();
+    }
+
+    private static String sha256(String s) {
+        try {
+            byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(64);
+            for (byte b : d) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        }
+        catch (Exception e) {
+            return "";
+        }
+    }
+
     private JsonObject obj(Object ... kv) {
         JsonObject o = new JsonObject();
         for (int i = 0; i < kv.length; i += 2) {
@@ -753,13 +811,13 @@ implements Listener {
             y.set("tx." + k + ".amount", (Object)this.txAmount.getOrDefault(k, 0.0));
             y.set("tx." + k + ".at", (Object)this.txAt.getOrDefault(k, 0L));
         }
-        for (Map.Entry<String, Object> entry : this.txHistory.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : this.txHistory.entrySet()) {
             y.set("history." + entry.getKey(), entry.getValue());
         }
-        for (Map.Entry<String, Object> entry : this.dailyClaimed.entrySet()) {
+        for (Map.Entry<String, Long> entry : this.dailyClaimed.entrySet()) {
             y.set("daily." + entry.getKey(), entry.getValue());
         }
-        for (Map.Entry<String, Object> entry : this.invested.entrySet()) {
+        for (Map.Entry<String, Double> entry : this.invested.entrySet()) {
             y.set("invested." + entry.getKey(), entry.getValue());
         }
         try {
