@@ -1,0 +1,150 @@
+game:
+  # Vies de depart par round : l'escalade accompagne des chargeurs de plus
+  # en plus gros. Trois valeurs, aucune au-dessus de max-lives.
+  lives-by-round: [3, 4, 5]
+  # Plafond de vies par round : le donut ne peut pas faire monter au-dela.
+  # Une vie = un coeur dans la barre de vie, donc 5 coeurs affiches au maximum.
+  max-lives: 5
+  # Fourchettes de chargeur par round : le total est tire d'abord, puis le
+  # nombre de reelles, avec toujours au moins une reelle et une blanche.
+  # Round 1 : initiation courte. Round 2 : asymetries. Round 3 : chaos.
+  shells-by-round:
+    round-1: {min: 2, max: 4, reals-min: 1, reals-max: 2}
+    round-2: {min: 4, max: 6, reals-min: 1, reals-max: 3}
+    round-3: {min: 5, max: 8, reals-min: 3, reals-max: 4}
+  items-per-load-by-round: [0, 2, 4]
+  max-items: 8
+  blackout-ticks: 40
+  dealer-think-min-ticks: 20
+  dealer-think-max-ticks: 35
+  # Temps pendant lequel DrDonutt garde l'arme en joue avant de tirer,
+  # en plus des huit ticks de montee en joue. 40 = deux secondes.
+  dealer-aim-ticks: 40
+  # Temps pendant lequel DrDonutt montre l'objet qu'il a choisi
+  # avant que son effet s'applique. 30 = une seconde et demie.
+  dealer-item-ticks: 30
+  # Temps ou le fusil reste devant les yeux pendant l'inspection
+  # a la loupe. La sequence brute ne dure que huit ticks : sans
+  # tenue, l'animation passe trop vite pour se voir.
+  loupe-hold-ticks: 18
+
+staging:
+  music-start-radius: 80.0
+  music-stop-radius: 90.0
+  # Rayon dans lequel les spectateurs partagent le oof et le flash noir.
+  witness-radius: 15.0
+  # A moins de ce rayon d'une table libre, la partie demarre toute seule.
+  auto-start-radius: 6.0
+
+# Peaux du dealer par round, signees Mojang (obtenues via mineskin.org :
+# value = texture base64, signature = signature Mojang). Vides = peau
+# DrDonutt normale tout du long.
+skins:
+  round-2:
+    value: ""
+    signature: ""
+  round-3:
+    value: ""
+    signature: ""
+
+# Pose du fusil vise du dealer, reglee EN DIRECT par /rr pose (ItemDisplay
+# pilote serveur, aucune reconstruction de pack). avant/droite/haut en blocs
+# par rapport au corps du dealer ; lacet/tangage/roulis en degres ; tangage
+# positif = canon vers le haut.
+pose:
+  front:
+    # Calibree en jeu au stick le 2026-08-22.
+    avant: 1.06
+    droite: 0.10
+    haut: 1.45
+    lacet: 183.0
+    tangage: -10.9
+    roulis: 0.0
+    echelle: 0.55
+    bras: 2
+    modele: hold
+  self:
+    # Calibree en jeu au stick le 2026-08-22.
+    avant: 0.17
+    droite: 0.29
+    haut: 1.45
+    lacet: 233.1
+    tangage: 115.0
+    roulis: 180.0
+    echelle: 0.55
+    bras: 1
+    modele: hold
+  # Calibree en jeu au stick le 2026-08-22. Le modele inspect_7 est le seul
+  # qui dessine une cartouche dans le port d'ejection ; elle est grise, la
+  # chambre du dealer ne se lit pas depuis l'autre bout de la table.
+  #
+  # bras 2 et non 1 : contre l'intuition, c'est la pose bras tendus de
+  # l'arbalete chargee qui tombe juste, pas le pli du coude d'un objet tenu.
+  inspect:
+    avant: 0.95
+    droite: 0.45
+    haut: 1.61
+    lacet: 230.0
+    tangage: -20.0
+    roulis: 0.0
+    echelle: 0.55
+    bras: 2
+    modele: inspect_7
+  # Menottes portees (anneaux sur les poignets crossbow). Position figee au
+  # banc de pose web le 2026-08-23, echelle validee par l'utilisateur ;
+  # appliquee telle quelle en prod le meme jour.
+  # Pose retenue par l'utilisateur le 2026-08-23 (banc + stick, pack
+  # 2b805607) : dealer verrouille face a la table, bras crossbow figes.
+  menottes:
+    avant: 0.45
+    droite: 0.08
+    haut: 1.23
+    lacet: -1.5
+    tangage: -7.5
+    roulis: 0.0
+    echelle: 0.81
+    pitch-npc: 1
+    bras: 2
+    modele: portees
+
+# Mises et gains, branches sur l'economie Vault (le fork java21) : le pont
+# Outmind mirror chaque delta d'un joueur en ligne, debiter/crediter ici
+# suffit. La mise se tape au chat a l'approche de la table (500K, 2M...).
+# Les multiplicateurs sont les quotas de cashout par round GAGNE : encaisser
+# apres le round N rend mise x multiplicateurs[N-1], MISE COMPRISE. Gagner
+# le round 3 paye le dernier multiplicateur.
+gains:
+  mise-min: 100000
+  mise-max: 10000000
+  multiplicateurs: [1.5, 2.5, 5.0]
+
+# Duel PvP : /rr duel <montant> pose un defi, /rr duel accepter le releve.
+# Un seul round, chaque joueur mise le meme montant, le gagnant prend le pot.
+# mise-min/max retombent sur gains.mise-min/max si absents.
+# Chargeur totalement aleatoire : 2 a 8 cartouches, reelles libres (le
+# generateur garde toujours au moins une reelle et une blanche).
+duel:
+  vies: 6
+  chargeur:
+    min: 2
+    max: 8
+    reals-min: 1
+    reals-max: 7
+  objets-par-chargeur: 3
+  # Duree de validite d'un defi, en ticks (1200 = 60 s).
+  defi-ticks: 1200
+
+# Volumes, reglables en direct par /rr sons. Au-dela de 1.0, Minecraft
+# n'amplifie pas : il elargit seulement la portee du son.
+# Gestes de bras vanilla forces par le serveur (visibles par tous, Bedrock
+# compris) : duree de la taffe main a la bouche, de la gorgee de biere, et
+# bras tendus pendant l'inspection a la loupe (false si la premiere personne
+# en souffre).
+animations:
+  taffe-ticks: 24
+  biere-ticks: 22
+  inspect-bras: true
+
+sons:
+  volume-musique: 0.7
+  volume-voix: 1.6

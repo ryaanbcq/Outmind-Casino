@@ -1,0 +1,19 @@
+name: Buckshot
+version: 0.1.0
+main: net.thundranode.buckshot.BuckshotPlugin
+api-version: '1.21'
+description: Full Buckshot Roulette against DrDonutt.
+depend: [Citizens]
+softdepend: [Multiverse-Core, Vault, PlaceholderAPI]
+commands:
+  rr:
+    description: Play Buckshot Roulette and manage the table.
+    usage: "/rr <jouer|abandonner|table <creer|retirer|afficher>|donner|anim <etat>|stop>"
+  leave:
+    description: Leave the current Buckshot Roulette game.
+    usage: "/leave"
+permissions:
+  buckshot.play:
+    default: true
+  buckshot.admin:
+    default: op

@@ -1,0 +1,60 @@
+# Scoreboard Outmind Casino (genere par tools/gen_simplescore.py, DA identique au TAB)
+outmind:
+  titles:
+    - text: '&#A18CD1&l✦ &#B699D7&lᴏ&#C19FDA&lᴜ&#CBA5DD&lᴛ&#D6ACE0&lᴍ&#E1B2E3&lɪ&#EBB8E6&lɴ&#F6BFE9&lᴅ &#EBB8E6&lᴄ&#E1B2E3&lᴀ&#D6ACE0&lꜱ&#CBA5DD&lɪ&#C19FDA&lɴ&#B699D7&lᴏ &#A18CD1&l✦'
+      visibleFor: 2
+    - text: '&#AA91D4&l✦ &#BF9EDA&lᴏ&#CAA4DD&lᴜ&#D4ABE0&lᴛ&#DFB1E3&lᴍ&#EAB8E6&lɪ&#F4BEE9&lɴ&#F7C0EA&lᴅ &#E2B3E4&lᴄ&#D8ADE1&lᴀ&#CDA6DE&lꜱ&#C2A0DB&lɪ&#B89AD8&lɴ&#AD93D5&lᴏ &#AA91D4&l✦'
+      visibleFor: 2
+    - text: '&#B397D6&l✦ &#C8A4DC&lᴏ&#D3AADF&lᴜ&#DDB0E2&lᴛ&#E8B7E5&lᴍ&#F3BDE9&lɪ&#F9C1EA&lɴ&#EEBAE7&lᴅ &#D9AEE1&lᴄ&#CFA7DE&lᴀ&#C4A1DB&lꜱ&#B99BD8&lɪ&#AF94D5&lɴ&#A48ED2&lᴏ &#B397D6&l✦'
+      visibleFor: 2
+    - text: '&#BC9CD9&l✦ &#D1A9DF&lᴏ&#DCAFE2&lᴜ&#E6B6E5&lᴛ&#F1BCE8&lᴍ&#FAC2EB&lɪ&#F0BBE8&lɴ&#E5B5E5&lᴅ &#D0A8DF&lᴄ&#C6A2DC&lᴀ&#BB9CD8&lꜱ&#B095D5&lɪ&#A68FD2&lɴ&#A78FD3&lᴏ &#BC9CD9&l✦'
+      visibleFor: 2
+    - text: '&#C5A2DB&l✦ &#DAAEE2&lᴏ&#E5B5E5&lᴜ&#EFBBE8&lᴛ&#FAC1EB&lᴍ&#F1BCE8&lɪ&#E7B6E5&lɴ&#DCB0E2&lᴅ &#C7A3DC&lᴄ&#BD9DD9&lᴀ&#B296D6&lꜱ&#A790D3&lɪ&#A58FD2&lɴ&#B095D5&lᴏ &#C5A2DB&l✦'
+      visibleFor: 2
+    - text: '&#CEA7DE&l✦ &#E3B4E4&lᴏ&#EEBAE7&lᴜ&#F8C0EA&lᴛ&#F3BDE9&lᴍ&#E8B7E6&lɪ&#DEB1E3&lɴ&#D3AAE0&lᴅ &#BE9DD9&lᴄ&#B497D6&lᴀ&#A991D3&lꜱ&#A48ED2&lɪ&#AE94D5&lɴ&#B99AD8&lᴏ &#CEA7DE&l✦'
+      visibleFor: 2
+    - text: '&#D7ACE1&l✦ &#ECB9E7&lᴏ&#F7BFEA&lᴜ&#F5BEE9&lᴛ&#EAB8E6&lᴍ&#DFB1E3&lɪ&#D5ABE0&lɴ&#CAA5DD&lᴅ &#B598D7&lᴄ&#AB92D4&lᴀ&#A28DD1&lꜱ&#AD93D4&lɪ&#B799D7&lɴ&#C2A0DA&lᴏ &#D7ACE1&l✦'
+      visibleFor: 2
+    - text: '&#E0B2E3&l✦ &#F5BFE9&lᴏ&#F6BFEA&lᴜ&#ECB9E7&lᴛ&#E1B2E4&lᴍ&#D6ACE0&lɪ&#CCA6DD&lɴ&#C19FDA&lᴅ &#AC93D4&lᴄ&#A28CD1&lᴀ&#AB92D4&lꜱ&#B698D7&lɪ&#C09FDA&lɴ&#CBA5DD&lᴏ &#E0B2E3&l✦'
+      visibleFor: 2
+    - text: '&#E9B7E6&l✦ &#F8C0EA&lᴏ&#EDBAE7&lᴜ&#E3B3E4&lᴛ&#D8ADE1&lᴍ&#CDA7DE&lɪ&#C3A0DB&lɴ&#B89AD8&lᴅ &#A38DD2&lᴄ&#A991D3&lᴀ&#B497D7&lꜱ&#BF9EDA&lɪ&#C9A4DD&lɴ&#D4AAE0&lᴏ &#E9B7E6&l✦'
+      visibleFor: 2
+    - text: '&#F2BDE8&l✦ &#EFBBE7&lᴏ&#E4B4E4&lᴜ&#DAAEE1&lᴛ&#CFA8DE&lᴍ&#C4A1DB&lɪ&#BA9BD8&lɴ&#AF95D5&lᴅ &#A890D3&lᴄ&#B296D6&lᴀ&#BD9DD9&lꜱ&#C8A3DC&lɪ&#D2AADF&lɴ&#DDB0E2&lᴏ &#F2BDE8&l✦'
+      visibleFor: 2
+    - text: '&#FBC2EB&l✦ &#E6B5E5&lᴏ&#DBAFE2&lᴜ&#D1A9DF&lᴛ&#C6A2DC&lᴍ&#BB9CD9&lɪ&#B196D6&lɴ&#A68FD3&lᴅ &#B196D6&lᴄ&#BB9CD9&lᴀ&#C6A2DC&lꜱ&#D1A9DF&lɪ&#DBAFE2&lɴ&#E6B5E5&lᴏ &#FBC2EB&l✦'
+      visibleFor: 2
+    - text: '&#F2BDE8&l✦ &#DDB0E2&lᴏ&#D2AADF&lᴜ&#C8A3DC&lᴛ&#BD9DD9&lᴍ&#B296D6&lɪ&#A890D3&lɴ&#A58ED2&lᴅ &#BA9BD8&lᴄ&#C4A1DB&lᴀ&#CFA8DE&lꜱ&#DAAEE1&lɪ&#E4B4E4&lɴ&#EFBBE7&lᴏ &#F2BDE8&l✦'
+      visibleFor: 2
+    - text: '&#E9B7E6&l✦ &#D4AAE0&lᴏ&#C9A4DD&lᴜ&#BF9EDA&lᴛ&#B497D7&lᴍ&#A991D3&lɪ&#A38DD2&lɴ&#AE94D5&lᴅ &#C3A0DB&lᴄ&#CDA7DE&lᴀ&#D8ADE1&lꜱ&#E3B3E4&lɪ&#EDBAE7&lɴ&#F8C0EA&lᴏ &#E9B7E6&l✦'
+      visibleFor: 2
+    - text: '&#E0B2E3&l✦ &#CBA5DD&lᴏ&#C09FDA&lᴜ&#B698D7&lᴛ&#AB92D4&lᴍ&#A28CD1&lɪ&#AC93D4&lɴ&#B799D7&lᴅ &#CCA6DD&lᴄ&#D6ACE0&lᴀ&#E1B2E4&lꜱ&#ECB9E7&lɪ&#F6BFEA&lɴ&#F5BFE9&lᴏ &#E0B2E3&l✦'
+      visibleFor: 2
+    - text: '&#D7ACE1&l✦ &#C2A0DA&lᴏ&#B799D7&lᴜ&#AD93D4&lᴛ&#A28DD1&lᴍ&#AB92D4&lɪ&#B598D7&lɴ&#C09EDA&lᴅ &#D5ABE0&lᴄ&#DFB1E3&lᴀ&#EAB8E6&lꜱ&#F5BEE9&lɪ&#F7BFEA&lɴ&#ECB9E7&lᴏ &#D7ACE1&l✦'
+      visibleFor: 2
+    - text: '&#CEA7DE&l✦ &#B99AD8&lᴏ&#AE94D5&lᴜ&#A48ED2&lᴛ&#A991D3&lᴍ&#B497D6&lɪ&#BE9DD9&lɴ&#C9A4DC&lᴅ &#DEB1E3&lᴄ&#E8B7E6&lᴀ&#F3BDE9&lꜱ&#F8C0EA&lɪ&#EEBAE7&lɴ&#E3B4E4&lᴏ &#CEA7DE&l✦'
+      visibleFor: 2
+    - text: '&#C5A2DB&l✦ &#B095D5&lᴏ&#A58FD2&lᴜ&#A790D3&lᴛ&#B296D6&lᴍ&#BD9DD9&lɪ&#C7A3DC&lɴ&#D2A9DF&lᴅ &#E7B6E5&lᴄ&#F1BCE8&lᴀ&#FAC1EB&lꜱ&#EFBBE8&lɪ&#E5B5E5&lɴ&#DAAEE2&lᴏ &#C5A2DB&l✦'
+      visibleFor: 2
+    - text: '&#BC9CD9&l✦ &#A78FD3&lᴏ&#A68FD2&lᴜ&#B095D5&lᴛ&#BB9CD8&lᴍ&#C6A2DC&lɪ&#D0A8DF&lɴ&#DBAFE2&lᴅ &#F0BBE8&lᴄ&#FAC2EB&lᴀ&#F1BCE8&lꜱ&#E6B6E5&lɪ&#DCAFE2&lɴ&#D1A9DF&lᴏ &#BC9CD9&l✦'
+      visibleFor: 2
+    - text: '&#B397D6&l✦ &#A48ED2&lᴏ&#AF94D5&lᴜ&#B99BD8&lᴛ&#C4A1DB&lᴍ&#CFA7DE&lɪ&#D9AEE1&lɴ&#E4B4E4&lᴅ &#F9C1EA&lᴄ&#F3BDE9&lᴀ&#E8B7E5&lꜱ&#DDB0E2&lɪ&#D3AADF&lɴ&#C8A4DC&lᴏ &#B397D6&l✦'
+      visibleFor: 2
+    - text: '&#AA91D4&l✦ &#AD93D5&lᴏ&#B89AD8&lᴜ&#C2A0DB&lᴛ&#CDA6DE&lᴍ&#D8ADE1&lɪ&#E2B3E4&lɴ&#EDB9E7&lᴅ &#F4BEE9&lᴄ&#EAB8E6&lᴀ&#DFB1E3&lꜱ&#D4ABE0&lɪ&#CAA4DD&lɴ&#BF9EDA&lᴏ &#AA91D4&l✦'
+      visibleFor: 2
+  scores:
+    14: '&#A18CD1&m &#A58ED2&m &#A991D3&m &#AD93D4&m &#B195D6&m &#B598D7&m &#B89AD8&m &#BC9CD9&m &#C09FDA&m &#C4A1DB&m &#C8A3DC&m &#CCA6DD&m &#D0A8DF&m &#D4ABE0&m &#D8ADE1&m &#DCAFE2&m &#E0B2E3&m &#E4B4E4&m &#E7B6E5&m &#EBB9E6&m &#EFBBE8&m &#F3BDE9&m &#F7C0EA&m &#FBC2EB&m '
+    13: '  &#FBC2EB☺ &f&lɴᴀᴍᴇ'
+    12: '    &7%player_name%'
+    11: '  &#FBC2EB♛ &f&lʀᴀɴᴋ'
+    10: '    %luckperms_prefix%'
+    9: '  &#FBC2EB⌛ &f&lᴘʟᴀʏᴛɪᴍᴇ'
+    8: '    &7%outmind_playtime%'
+    7: '  &#FBC2EB⚡ &f&lᴘʀᴏꜰɪᴛ'
+    6: '    %outmind_profit_short%'
+    5: '  &#FBC2EB⛃ &f&lɪɴᴠᴇꜱᴛᴇᴅ'
+    4: '    &7$%outmind_invested_short%'
+    3: '&#A18CD1&m &#A58ED2&m &#A991D3&m &#AD93D4&m &#B195D6&m &#B598D7&m &#B89AD8&m &#BC9CD9&m &#C09FDA&m &#C4A1DB&m &#C8A3DC&m &#CCA6DD&m &#D0A8DF&m &#D4ABE0&m &#D8ADE1&m &#DCAFE2&m &#E0B2E3&m &#E4B4E4&m &#E7B6E5&m &#EBB9E6&m &#EFBBE8&m &#F3BDE9&m &#F7C0EA&m &#FBC2EB&m '
+    2: '  &#FBC2EB✉ &f&lᴅɪꜱᴄᴏʀᴅ &8» %outmind_discord%'
+  defaultHideNumber: true
+  defaultRenderEvery: 20
+  conditions: [ ]

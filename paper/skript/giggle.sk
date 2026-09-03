@@ -1,0 +1,13 @@
+# giggle.sk : rire de DrDonutt declenche par le PNJ Citizens "claim your prize" (id 7).
+# Lance depuis la console par la commande du PNJ : "giggle <p>".
+# Tire un des 5 rires (evenements rr:voix.giggle_0 a _4 du resource pack) en
+# excluant le dernier joue : jamais deux fois le meme d'affilee.
+# Silencieux dans le chat, contrairement a /playsound.
+command /giggle <player>:
+    executable by: console
+    trigger:
+        set {_n} to a random integer between 0 and 4
+        while {_n} is {giggle.dernier}:
+            set {_n} to a random integer between 0 and 4
+        set {giggle.dernier} to {_n}
+        play sound "rr:voix.giggle_%{_n}%" with volume 1 and pitch 1 at arg-1 for all players in radius 16 around arg-1

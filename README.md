@@ -34,6 +34,24 @@ money and talk to players. The Paper plugins are not part of this repository.
 | `discord-bot/bot.js` | `discord-bot` | Discord side: account linking (`/verify` code from the game), `/cashout`, `/chain` (double or nothing), `/stats`, `/vouch`, `/balance`, `/bank` (auto deposit), showcase channels, admin commands. |
 | `discord-bot/public-ai.js`, `admin-ai.js` | inside `discord-bot` | Optional LLM desks: a public helper for players and an admin assistant. Both are off when no API key is configured. |
 
+## Paper server side (`paper/`)
+
+The casino runs on a Paper 1.21.11 server. What is ours is published here:
+
+| Directory | What it is |
+|---|---|
+| `paper/buckshot/plugin` | **Donut's Buckshot**, a Buckshot-Roulette style minigame plugin (Maven, Java 21): solo tables against a Citizens dealer NPC, PvP duel tables with a pot, multi-table support, PlaceholderAPI placeholders, Bedrock (Geyser) fallbacks. Build with `mvn package`. |
+| `paper/buckshot/resourcepack` | Its resource pack (models, textures, font glyphs, `sounds.json`). The audio files are not included: most of them are third-party recordings. Drop your own `.ogg` files under `assets/rr/sounds/` with the names listed in `sounds.json`. |
+| `paper/buckshot/build_merged_pack.py`, `build_bedrock_pack.py` | Merge the pack with another pack and build the Bedrock `.mcpack` for Geyser. |
+| `paper/outmindstats` | Tiny plugin exposing the stats placeholders used by the scoreboard and the name tags (`%outmind_profit%`, `%outmind_balance_short%`, `%outmind_playtime%`, `%outmind_discord%`). Reads `mirrored.json` and `links.json`, which the bridge publishes. |
+| `paper/skript` | Skript scripts: cashout status feedback (action bar, sounds, error dialogs), dealer giggle, luck potion bottle cleanup. |
+| `paper/scoreboard` | SimpleScore scoreboard config and the script that generates it. |
+
+Not included because they are third-party or closed source: **OutMindLink** (the vault plugin that holds
+balances in game, handles `/cashout`, `/invest` and the daily reward; the bridge talks to it through its
+outbox/inbox files and console commands), **NitroCasino** and **Vegas** (commercial casino game plugins).
+The odds of those games are theirs, not ours.
+
 ## Money model
 
 - The in-game vault is the source of truth for withdrawals. The ledger (`balances.json`) records what the bank owes and what was mirrored into the game; the bridge pushes every difference between the two into the game.

@@ -1,0 +1,7 @@
+# Potion of Luck (daily reward OutMindLink : potion base LUCK nommee "§d§lPotion of Luck") :
+# la fiole vide rendue apres l'avoir bue disparait de l'inventaire (2026-09-02).
+on consume:
+    if event-item is a potion:
+        if name of event-item contains "Potion of Luck":
+            wait 1 tick
+            remove 1 glass bottle from player's inventory

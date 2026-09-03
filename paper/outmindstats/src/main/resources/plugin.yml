@@ -1,0 +1,6 @@
+name: OutmindStats
+version: 1.0.0
+main: casino.outmind.stats.OutmindStats
+api-version: '1.21'
+depend: [PlaceholderAPI, OutMindLink]
+description: Placeholders de stats casino (%outmind_profit%) calcules depuis le vault, l'investissement et le net depose (mirrored.json pousse par le bridge).

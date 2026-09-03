@@ -1,0 +1,130 @@
+# cashout-status.sk : affichage et sons autour d'un cashout (actionbar), et TOUTES les
+# erreurs en ecran de dialogue (DA du PNJ Discord) avec son d'erreur + boutons ticket/Discord.
+# Signaux console :
+#   - "cashoutpending <joueur>"            plugin OutMindLink (jar patche) : demande acceptee
+#   - "cashoutdone <joueur> PAID"          bot DonutSMP a la confirmation "You paid", puis plugin
+#                                          au retour du statut (doublon ignore, fenetre 3 min)
+#   - "cashoutdone <joueur> <statut>"      plugin, statut != PAID : echec generique si aucun code
+#                                          plus precis n'est deja arrive (cashoutfailed)
+#   - "cashoutrefused <joueur> <raison>"   plugin : refus immediat (bot_offline, withdraw_failed,
+#                                          invalid_amount, nothing_allowed, over_allowed, nothing_asked)
+#   - "cashoutfailed <joueur> <code>"      bridge : review, limit_personal, limit_vault, limit_partial
+#                                          bot : player_unknown, player_offline, payment_delayed,
+#                                          payment_stalled
+# Le son rr:cashout.ok et le "Thank you" partent de la MEME ligne : meme tick.
+# Actionbar renvoyee chaque tick pour rester devant celle de PrestigiaBalance (solde).
+
+options:
+    ticket: https://discord.com/channels/<guild id>/<ticket channel id>
+    invite: https://discord.gg/<your invite>
+
+# Texte de chaque code d'erreur (anglais, voix du casino)
+function motifErreur(code: text) :: text:
+    if {_code} is "bot_offline":
+        return "the bank bot is offline on DonutSMP right now. Please try again in a few minutes"
+    if {_code} is "withdraw_failed":
+        return "your casino balance could not be debited. Nothing was taken"
+    if {_code} is "invalid_amount":
+        return "that amount is not valid. Use a number like 250000 or 2.5M, or max"
+    if {_code} is "nothing_allowed":
+        return "nothing can be withdrawn yet: the 500K welcome bonus stays in the casino. Win above it or deposit on DonutSMP first"
+    if {_code} is "over_allowed":
+        return "that is more than you can withdraw right now. Check the allowed amount in the cashout menu"
+    if {_code} is "nothing_asked":
+        return "no amount was given"
+    if {_code} is "review":
+        return "your account is under a staff review, cashouts are paused. Your money is safe and comes back to your balance once the review is done"
+    if {_code} is "limit_personal":
+        return "you reached your personal daily withdrawal limit. Your money is back on your balance, come back after midnight (Paris time)"
+    if {_code} is "limit_vault":
+        return "the casino vault reached its daily withdrawal limit. Your money is back on your balance, withdrawals reopen at midnight (Paris time)"
+    if {_code} is "limit_partial":
+        return "daily limit hit halfway: part of it was sent to your DonutSMP purse, the rest is back on your balance"
+    if {_code} is "player_unknown":
+        return "DonutSMP does not know your name yet (changed nickname, or Bedrock account?). Log into DonutSMP once with this exact account, the bot retries automatically"
+    if {_code} is "player_offline":
+        return "you need to be online on DonutSMP to receive the payment. The bot keeps retrying for a few minutes"
+    if {_code} is "payment_delayed":
+        return "your payment left right before a connection drop and is being checked by hand. Our team has been notified"
+    if {_code} is "payment_stalled":
+        return "DonutSMP did not confirm your payment after several tries. Our team has been notified, open a ticket so we can settle it fast"
+    return "the payment could not go through, your money is back on your balance"
+
+function ticketDiscord(p: player, motif: text):
+    play sound "rr:cashout.error" with volume 1 and pitch 1 at {_p} for {_p}
+    # Ecran de dialogue (1.21.6+), meme DA que le PNJ Discord du casino : titre en petites
+    # capitales #C9A4DD, corps blanc, boutons bleu Discord #5865F2 qui ouvrent une URL.
+    set {_json} to "{type:""minecraft:multi_action"",title:{text:""ᴏᴜᴛᴍɪɴᴅ ᴄᴀꜱɪɴᴏ × ꜱᴜᴘᴘᴏʀᴛ"",color:""#C9A4DD"",bold:true},body:[{type:""minecraft:plain_message"",contents:{text:"""",extra:[{text:""✘ Cashout failed: "",color:""#FF5555"",bold:true},{text:""%{_motif}%."",color:""white""},{text:""\n\nYour money is safe on your casino balance. Need help? Open a ticket on our Discord and tell us what happened, the team will sort it out."",color:""white""}]}}],actions:[{label:{text:""ᴏᴘᴇɴ ᴀ ᴛɪᴄᴋᴇᴛ"",color:""#5865F2"",bold:true},tooltip:{text:""Opens the ticket channel on our Discord""},width:200,action:{type:""minecraft:open_url"",url:""{@ticket}""}},{label:{text:""ᴊᴏɪɴ ᴛʜᴇ ᴅɪꜱᴄᴏʀᴅ"",color:""#5865F2"",bold:true},tooltip:{text:""Not on our Discord yet? Join here first""},width:200,action:{type:""minecraft:open_url"",url:""{@invite}""}}],exit_action:{label:{text:""ᴄʟᴏꜱᴇ""},width:100},columns:1}"
+    execute console command "dialog show %{_p}% %{_json}%"
+
+command /cashoutpending <text>:
+    executable by: console
+    trigger:
+        set {_p} to arg-1 parsed as player
+        if {_p} is not set:
+            stop
+        delete {cashout.done::%arg-1%}
+        delete {cashout.failed::%arg-1%}
+        set {cashout.pending::%arg-1%} to true
+        set {_dots::1} to "."
+        set {_dots::2} to ".."
+        set {_dots::3} to "..."
+        set {_i} to 0
+        while {cashout.pending::%arg-1%} is true:
+            if {_p} is offline:
+                delete {cashout.pending::%arg-1%}
+                stop
+            if {_i} >= 12000:
+                delete {cashout.pending::%arg-1%}
+                stop
+            set {_k} to mod(floor({_i} / 10), 3) + 1
+            send action bar colored "&7Cashout pending%{_dots::%{_k}%}%" to {_p}
+            add 1 to {_i}
+            wait 1 tick
+
+command /cashoutdone <text> <text>:
+    executable by: console
+    trigger:
+        delete {cashout.pending::%arg-1%}
+        set {_p} to arg-1 parsed as player
+        if {_p} is not set:
+            stop
+        if arg-2 is "PAID":
+            if difference between {cashout.done::%arg-1%} and now is less than 3 minutes:
+                stop
+            set {cashout.done::%arg-1%} to now
+            play sound "rr:cashout.ok" with volume 1 and pitch 1 at {_p} for {_p}
+            loop 80 times:
+                if {_p} is offline:
+                    stop
+                send action bar colored "&a&lThank you for trusting Donut Pay." to {_p}
+                wait 1 tick
+        else:
+            send action bar "" to {_p}
+            if difference between {cashout.failed::%arg-1%} and now is less than 3 minutes:
+                stop
+            set {cashout.failed::%arg-1%} to now
+            ticketDiscord({_p}, motifErreur("generic"))
+
+command /cashoutrefused <text> <text>:
+    executable by: console
+    trigger:
+        set {_p} to arg-1 parsed as player
+        if {_p} is not set:
+            stop
+        ticketDiscord({_p}, motifErreur(arg-2))
+
+command /cashoutfailed <text> <text>:
+    executable by: console
+    trigger:
+        set {_p} to arg-1 parsed as player
+        if {_p} is not set:
+            stop
+        # le bot va reessayer sur ces deux codes : on garde l'animation d'attente
+        if arg-2 is "player_unknown" or "player_offline":
+            set {_garde} to true
+        if {_garde} is not set:
+            delete {cashout.pending::%arg-1%}
+            send action bar "" to {_p}
+        set {cashout.failed::%arg-1%} to now
+        ticketDiscord({_p}, motifErreur(arg-2))
