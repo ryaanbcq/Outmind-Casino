@@ -143,8 +143,9 @@ function documents(live) {
         fields: [
           { name: "Donut's Buckshot", value:
             'Measured by simulation on the actual game engine, 200,000 games per strategy. ' +
-            'A skilled player who plays the items well returns about **$0.84** going for the full x5, ' +
-            'and cashing out after round 1 returns up to **$0.87**. Skill matters: careless play returns far less.', inline: false },
+            'Multipliers were raised on 2026-09-03: round 1 now pays **x1.7**, round 2 **x3**, the full run **x5**. ' +
+            'Cashing out after round 1 returns up to **$0.99** per $1 played, the friendliest line in the house. ' +
+            'A skilled player going for the full x5 returns about **$0.84**. Skill matters: careless play deep into the game returns far less.', inline: false },
           { name: 'Chain (Discord)', value: '40% to double your stake, paid instantly. Returns **$0.80**. The roll is cryptographic randomness, not a game state anyone can nudge.', inline: true },
           { name: 'Roulette (casino floor)', value: '37 slots. Single number or green pays 36x, red or black pays 2x. Returns **$0.973**, the classic European edge.', inline: true },
           { name: 'Vegas roulette', value: 'Easy 30% for x3, medium 15% for x6, hard 9% for x10. All three return **$0.90**.', inline: true },
