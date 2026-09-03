@@ -1,0 +1,18 @@
+name: OutMindLink
+version: '1.0.0'
+main: fr.prestigia.outmindlink.OutMindLink
+api-version: '1.21'
+description: Pont entre la banque OutMind (DonutSMP) et l'economie du serveur.
+author: Prestigia
+depend: [Vault]
+softdepend: [PlaceholderAPI]
+commands:
+  outmind:
+    description: Backend OutMind (retraits, appele par le menu /cashout).
+    usage: /outmind cashout <montant|max>
+  invest:
+    description: Donner une somme au casino, definitivement (capital maison).
+    usage: /invest <montant|max>
+  verify:
+    description: Obtenir un code pour lier son compte Discord au casino.
+    usage: /verify
