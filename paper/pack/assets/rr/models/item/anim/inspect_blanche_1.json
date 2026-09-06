@@ -1,0 +1,124 @@
+{
+  "parent": "rr:item/shotgun_inspect_blanche",
+  "display": {
+    "thirdperson_righthand": {
+      "rotation": [
+        0.0,
+        91.8286,
+        -9.4429
+      ],
+      "translation": [
+        0.1286,
+        -2.2671,
+        -7.1286
+      ],
+      "scale": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [
+        0.0,
+        91.8286,
+        -9.4429
+      ],
+      "translation": [
+        0.1286,
+        -2.2671,
+        -7.1286
+      ],
+      "scale": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "firstperson_lefthand": {
+      "rotation": [
+        8.2857,
+        73.5714,
+        0.0
+      ],
+      "translation": [
+        1.1486,
+        0.5557,
+        -3.6414
+      ],
+      "scale": [
+        0.6171,
+        0.6171,
+        0.6171
+      ]
+    },
+    "gui": {
+      "rotation": [
+        0,
+        0,
+        0
+      ],
+      "translation": [
+        3,
+        1,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.55,
+        0.55
+      ]
+    },
+    "ground": {
+      "rotation": [
+        90,
+        0,
+        0
+      ],
+      "translation": [
+        0,
+        2,
+        -2
+      ],
+      "scale": [
+        0.3,
+        0.3,
+        0.3
+      ]
+    },
+    "fixed": {
+      "rotation": [
+        0,
+        180,
+        0
+      ],
+      "translation": [
+        -3,
+        1,
+        0
+      ],
+      "scale": [
+        0.55,
+        0.55,
+        0.55
+      ]
+    },
+    "firstperson_righthand": {
+      "rotation": [
+        8.2857,
+        73.5714,
+        0.0
+      ],
+      "translation": [
+        1.1486,
+        0.5557,
+        -3.6414
+      ],
+      "scale": [
+        0.6171,
+        0.6171,
+        0.6171
+      ]
+    }
+  }
+}

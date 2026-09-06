@@ -1,0 +1,13 @@
+{
+  "parent": "rr:item/menottes",
+  "display": {
+    "thirdperson_righthand": { "scale": [0, 0, 0] },
+    "thirdperson_lefthand": { "scale": [0, 0, 0] },
+    "firstperson_righthand": { "scale": [0, 0, 0] },
+    "firstperson_lefthand": { "scale": [0, 0, 0] },
+    "gui": {
+      "rotation": [15, -25, 0],
+      "scale": [1.1, 1.1, 1.1]
+    }
+  }
+}

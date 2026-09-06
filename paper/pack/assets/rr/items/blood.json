@@ -1,0 +1,55 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "index": 0,
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "rr:item/blood_0"
+    },
+    "cases": [
+      {
+        "when": "blood_0",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/blood_0"
+        }
+      },
+      {
+        "when": "blood_1",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/blood_1"
+        }
+      },
+      {
+        "when": "blood_2",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/blood_2"
+        }
+      },
+      {
+        "when": "blood_3",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/blood_3"
+        }
+      },
+      {
+        "when": "blood_4",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/blood_4"
+        }
+      },
+      {
+        "when": "blood_5",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/blood_5"
+        }
+      }
+    ]
+  }
+}

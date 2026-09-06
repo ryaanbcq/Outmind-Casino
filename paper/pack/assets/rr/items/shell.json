@@ -1,0 +1,27 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "index": 0,
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "rr:item/shell"
+    },
+    "cases": [
+      {
+        "when": "rouge",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/shell"
+        }
+      },
+      {
+        "when": "blanche",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/shell_blanche"
+        }
+      }
+    ]
+  }
+}

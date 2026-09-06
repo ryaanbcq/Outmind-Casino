@@ -1,0 +1,514 @@
+{
+  "cashout.announce": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:cashout_announce",
+        "stream": false
+      }
+    ]
+  },
+  "cashout.error": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:cashout_error",
+        "stream": false
+      }
+    ]
+  },
+  "cashout.ok": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:cashout",
+        "stream": false
+      }
+    ]
+  },
+  "cigarette.fume": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:fume",
+        "stream": false
+      }
+    ]
+  },
+  "cine.intro": {
+    "sounds": [
+      {
+        "name": "rr:cine_intro",
+        "stream": true
+      }
+    ]
+  },
+  "hit.defib": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:defib",
+        "stream": false
+      }
+    ]
+  },
+  "hit.mort": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:mort",
+        "stream": false
+      }
+    ]
+  },
+  "hit.oof": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:oof",
+        "stream": false
+      }
+    ]
+  },
+  "music.dealer": {
+    "category": "record",
+    "sounds": [
+      {
+        "attenuation_distance": 100,
+        "name": "rr:dealer_theme",
+        "stream": true
+      }
+    ]
+  },
+  "music.final": {
+    "category": "record",
+    "sounds": [
+      {
+        "attenuation_distance": 100,
+        "name": "rr:final_theme",
+        "stream": true
+      }
+    ]
+  },
+  "music.lastheart": {
+    "category": "record",
+    "sounds": [
+      {
+        "attenuation_distance": 100,
+        "name": "rr:lastlife",
+        "stream": true
+      }
+    ]
+  },
+  "music.lastheart_final": {
+    "category": "record",
+    "sounds": [
+      {
+        "attenuation_distance": 100,
+        "name": "rr:finallastlife",
+        "stream": true
+      }
+    ]
+  },
+  "shot.blanc": {
+    "category": "player",
+    "sounds": [
+      {
+        "name": "rr:tir_blanc",
+        "stream": false
+      }
+    ]
+  },
+  "voix.donutsmoke": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/donutsmoke_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutsmoke_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutsmoke_2",
+        "stream": false
+      }
+    ]
+  },
+  "voix.donutwins": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/donutwins_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutwins_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutwins_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutwins_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutwins_4",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutwins_5",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutwins_6",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/donutwins_7",
+        "stream": false
+      }
+    ]
+  },
+  "voix.final": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/final_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_4",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_5",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_6",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_7",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/final_8",
+        "stream": false
+      }
+    ]
+  },
+  "voix.giggle": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/giggle_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/giggle_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/giggle_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/giggle_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/giggle_4",
+        "stream": false
+      }
+    ]
+  },
+  "voix.giggle_0": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/giggle_0",
+        "stream": false
+      }
+    ]
+  },
+  "voix.giggle_1": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/giggle_1",
+        "stream": false
+      }
+    ]
+  },
+  "voix.giggle_2": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/giggle_2",
+        "stream": false
+      }
+    ]
+  },
+  "voix.giggle_3": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/giggle_3",
+        "stream": false
+      }
+    ]
+  },
+  "voix.giggle_4": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/giggle_4",
+        "stream": false
+      }
+    ]
+  },
+  "voix.gotshot": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/gotshot_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_4",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_5",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_6",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_7",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_8",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/gotshot_9",
+        "stream": false
+      }
+    ]
+  },
+  "voix.inspect": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/inspect_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/inspect_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/inspect_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/inspect_3",
+        "stream": false
+      }
+    ]
+  },
+  "voix.nextround": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/nextround_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_4",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_5",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_6",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_7",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/nextround_8",
+        "stream": false
+      }
+    ]
+  },
+  "voix.playersmokes": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/playersmokes_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/playersmokes_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/playersmokes_2",
+        "stream": false
+      }
+    ]
+  },
+  "voix.shoothimself": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/shoothimself_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shoothimself_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shoothimself_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shoothimself_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shoothimself_4",
+        "stream": false
+      }
+    ]
+  },
+  "voix.shootsyou": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/shootsyou_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_4",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_5",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_6",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_7",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/shootsyou_8",
+        "stream": false
+      }
+    ]
+  },
+  "voix.welcome": {
+    "category": "voice",
+    "sounds": [
+      {
+        "name": "rr:voix/welcome_0",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/welcome_1",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/welcome_2",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/welcome_3",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/welcome_4",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/welcome_5",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/welcome_6",
+        "stream": false
+      },
+      {
+        "name": "rr:voix/welcome_7",
+        "stream": false
+      }
+    ]
+  }
+}

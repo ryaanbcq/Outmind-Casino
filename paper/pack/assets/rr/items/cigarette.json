@@ -1,0 +1,41 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "index": 0,
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "rr:item/cigarette_s0"
+    },
+    "cases": [
+      {
+        "when": "s0",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/cigarette_s0"
+        }
+      },
+      {
+        "when": "s1",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/cigarette_s1"
+        }
+      },
+      {
+        "when": "s2",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/cigarette_s2"
+        }
+      },
+      {
+        "when": "s3",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/cigarette_s3"
+        }
+      }
+    ]
+  }
+}

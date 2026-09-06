@@ -1,0 +1,62 @@
+{
+	"format_version": "1.21.11",
+	"texture_size": [16, 16],
+	"textures": {
+		"0": "rr:item/cigarette",
+		"particle": "rr:item/cigarette"
+	},
+	"elements": [
+		{
+			"name": "cendre",
+			"from": [6, 7.4, 7.5],
+			"to": [8, 8.4, 8.5],
+			"faces": {
+				"north": {"uv": [4.5, 8.5, 7.5, 11.5], "texture": "#0"},
+				"east": {"uv": [4.5, 8.5, 7.5, 11.5], "texture": "#0"},
+				"south": {"uv": [4.5, 8.5, 7.5, 11.5], "texture": "#0"},
+				"west": {"uv": [4.5, 8.5, 7.5, 11.5], "texture": "#0"},
+				"up": {"uv": [4.5, 8.5, 7.5, 11.5], "texture": "#0"},
+				"down": {"uv": [4.5, 8.5, 7.5, 11.5], "texture": "#0"}
+			}
+		},
+		{
+			"name": "braise",
+			"from": [8, 7.5, 7.5],
+			"to": [8.5, 8.5, 8.5],
+			"faces": {
+				"north": {"uv": [0.5, 8.5, 3.5, 11.5], "texture": "#0"},
+				"east": {"uv": [0.5, 8.5, 3.5, 11.5], "texture": "#0"},
+				"south": {"uv": [0.5, 8.5, 3.5, 11.5], "texture": "#0"},
+				"west": {"uv": [0.5, 8.5, 3.5, 11.5], "texture": "#0"},
+				"up": {"uv": [0.5, 8.5, 3.5, 11.5], "texture": "#0"},
+				"down": {"uv": [0.5, 8.5, 3.5, 11.5], "texture": "#0"}
+			}
+		},
+		{
+			"name": "papier",
+			"from": [8.5, 7.5, 7.5],
+			"to": [10, 8.5, 8.5],
+			"faces": {
+				"north": {"uv": [1, 2, 2.5, 3], "texture": "#0"},
+				"east": {"uv": [2, 2, 6, 6], "texture": "#0"},
+				"south": {"uv": [1, 2, 2.5, 3], "texture": "#0"},
+				"west": {"uv": [2, 2, 6, 6], "texture": "#0"},
+				"up": {"uv": [1, 2, 2.5, 3], "texture": "#0"},
+				"down": {"uv": [1, 2, 2.5, 3], "texture": "#0"}
+			}
+		},
+		{
+			"name": "filtre",
+			"from": [10, 7.5, 7.5],
+			"to": [12, 8.5, 8.5],
+			"faces": {
+				"north": {"uv": [9, 2, 15, 3], "texture": "#0"},
+				"east": {"uv": [8.5, 8.5, 11.5, 11.5], "texture": "#0"},
+				"south": {"uv": [9, 2, 15, 3], "texture": "#0"},
+				"west": {"uv": [9, 2, 13, 6], "texture": "#0"},
+				"up": {"uv": [9, 2, 15, 3], "texture": "#0"},
+				"down": {"uv": [9, 2, 15, 3], "texture": "#0"}
+			}
+		}
+	]
+}

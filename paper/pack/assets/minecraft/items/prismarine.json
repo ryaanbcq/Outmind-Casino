@@ -1,0 +1,29 @@
+{
+  "model": {
+    "type": "range_dispatch",
+    "property": "custom_model_data",
+    "fallback": {
+      "type": "model",
+      "model": "item/prismarine"
+    },
+    "entries": [
+      {"threshold": 66601,"model": {"type": "model", "model": "vegastables/blocks/roulette"}},
+      {"threshold": 66602,"model": {"type": "model", "model": "vegastables/blocks/darts"}},
+      {"threshold": 66603,"model": {"type": "model", "model": "vegastables/blocks/drums"}},
+      {"threshold": 66604,"model": {"type": "model", "model": "vegastables/blocks/races"}},
+      {"threshold": 66605,"model": {"type": "model", "model": "vegastables/blocks/pyramid"}},
+      {"threshold": 66606,"model": {"type": "model", "model": "vegastables/blocks/stairs"}},
+      {"threshold": 66607,"model": {"type": "model", "model": "vegastables/blocks/lottery"}},
+      {"threshold": 66608,"model": {"type": "model", "model": "vegastables/blocks/crash"}},
+      {"threshold": 66609,"model": {"type": "model", "model": "vegastables/blocks/classic"}},
+      {"threshold": 66610,"model": {"type": "model", "model": "vegastables/blocks/blackjack"}},
+      {"threshold": 66611,"model": {"type": "model", "model": "vegastables/blocks/rockpaperscissors"}},
+      {"threshold": 66612,"model": {"type": "model", "model": "vegastables/blocks/tictactoe"}},
+      {"threshold": 66613,"model": {"type": "model", "model": "vegastables/blocks/deadmanschest"}},
+      {"threshold": 66614,"model": {"type": "model", "model": "vegastables/blocks/poker"}},
+      {"threshold": 66615,"model": {"type": "model", "model": "vegastables/blocks/dice"}},
+      {"threshold": 66616,"model": {"type": "model", "model": "vegastables/blocks/minesweeper"}},
+      {"threshold": 66617,"model": {"type": "model", "model": "vegastables/blocks/doubleroulette"}}
+    ]
+  }
+}

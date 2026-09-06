@@ -1,0 +1,27 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "index": 0,
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "rr:item/menottes"
+    },
+    "cases": [
+      {
+        "when": "portees",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/menottes_portees"
+        }
+      },
+      {
+        "when": "tenues",
+        "model": {
+          "type": "minecraft:model",
+          "model": "rr:item/menottes_tenues"
+        }
+      }
+    ]
+  }
+}

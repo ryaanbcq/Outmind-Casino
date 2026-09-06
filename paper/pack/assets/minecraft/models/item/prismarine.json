@@ -1,0 +1,26 @@
+{
+"parent": "minecraft:block/cube_all",
+ "textures": {
+   "all": "minecraft:block/prismarine"
+ },
+
+"overrides": [
+{"predicate": {"custom_model_data":66601}, "model": "minecraft:vegastables/blocks/roulette"},
+{"predicate": {"custom_model_data":66602}, "model": "minecraft:vegastables/blocks/darts"},
+{"predicate": {"custom_model_data":66603}, "model": "minecraft:vegastables/blocks/drums"},
+{"predicate": {"custom_model_data":66604}, "model": "minecraft:vegastables/blocks/races"},
+{"predicate": {"custom_model_data":66605}, "model": "minecraft:vegastables/blocks/pyramid"},
+{"predicate": {"custom_model_data":66606}, "model": "minecraft:vegastables/blocks/stairs"},
+{"predicate": {"custom_model_data":66607}, "model": "minecraft:vegastables/blocks/lottery"},
+{"predicate": {"custom_model_data":66608}, "model": "minecraft:vegastables/blocks/crash"},
+{"predicate": {"custom_model_data":66609}, "model": "minecraft:vegastables/blocks/classic"},
+{"predicate": {"custom_model_data":66610}, "model": "minecraft:vegastables/blocks/blackjack"},
+{"predicate": {"custom_model_data":66611}, "model": "minecraft:vegastables/blocks/rockpaperscissors"},
+{"predicate": {"custom_model_data":66612}, "model": "minecraft:vegastables/blocks/tictactoe"},
+{"predicate": {"custom_model_data":66613}, "model": "minecraft:vegastables/blocks/deadmanschest"},
+{"predicate": {"custom_model_data":66614}, "model": "minecraft:vegastables/blocks/poker"},
+{"predicate": {"custom_model_data":66615}, "model": "minecraft:vegastables/blocks/dice"},
+{"predicate": {"custom_model_data":66616}, "model": "minecraft:vegastables/blocks/minesweeper"},
+{"predicate": {"custom_model_data":66617}, "model": "minecraft:vegastables/blocks/doubleroulette"}
+]
+}

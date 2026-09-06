@@ -1,0 +1,11 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "rr:font/blackout.png",
+      "ascent": 256,
+      "height": 512,
+      "chars": ["\ue000"]
+    }
+  ]
+}

@@ -28,3 +28,7 @@ node_modules/
 .DS_Store
 ._*
 Thumbs.db
+
+# Resource packs: model/item/sound definitions are JSON, not runtime state
+!paper/pack/**/*.json
+!paper/buckshot/resourcepack/**/*.json
