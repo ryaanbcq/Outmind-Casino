@@ -48,8 +48,9 @@ The casino runs on a Paper 1.21.11 server. What is ours is published here:
 | `paper/skript` | Skript scripts: cashout status feedback (action bar, sounds, error dialogs), dealer giggle, luck potion bottle cleanup. |
 | `paper/scoreboard` | SimpleScore scoreboard config and the script that generates it. |
 
-Not included because they are third-party commercial plugins: **NitroCasino** and **Vegas** (the casino
-game tables). Their code is theirs; the odds we configure on them are documented in the Discord odds board.
+Not included because they are third-party commercial plugins: [**NitroCasino**](https://www.spigotmc.org/resources/134590/)
+(roulette, crash, jackpot, coinflip, mob race) and [**Vegas**](https://www.spigotmc.org/resources/92321/) (blackjack, slots,
+stairs, lottery, drums and the other GUI tables), both bought on SpigotMC. Their code is theirs; the odds we configure on them are documented in the Discord odds board.
 Everything else the casino runs on the Paper side (OutMindLink, Donut's Buckshot, OutmindStats, the Skript
 scripts, the scoreboard, the resource pack) is ours and lives under `paper/`.
 
