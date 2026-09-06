@@ -4,7 +4,7 @@ Backend of the **Outmind Casino**, a Minecraft casino whose chips are real money
 from a public survival server. Players deposit by paying a bank account on the
 public server, play on a private Paper server, and withdraw back to the public
 server. This repository contains the three Node.js processes that move the
-money and talk to players. The Paper plugins are not part of this repository.
+money and talk to players, plus the Paper plugins and the resource pack we wrote for the casino (`paper/`).
 
 ```
  public server (DonutSMP)          this repo (VPS, pm2)               private Paper server
@@ -43,15 +43,15 @@ The casino runs on a Paper 1.21.11 server. What is ours is published here:
 | `paper/buckshot/resourcepack` | Its resource pack source overlay (models, textures, font glyphs, `sounds.json`), without audio. |
 | `paper/pack` | The complete pack as served to players: the Vegas base pack merged with the Outmind overlay, all audio included (soundtrack, dealer voice lines, cashout sounds), heart sprites, jetski models and the transparent bamboo raft texture. Zip this folder to get the exact file referenced by `resource-pack` in `server.properties`. |
 | `paper/buckshot/build_merged_pack.py`, `build_bedrock_pack.py` | Merge the pack with another pack and build the Bedrock `.mcpack` for Geyser. |
-| `paper/outmindlink` | **OutMindLink**, the bank↔economy bridge plugin (`/outmind cashout`, `/invest`, `/verify`, daily reward, cashout console signals). Reconstructed source: the original was lost, so this is a CFR decompile of the production jar, published by its owner - reference code for auditing the money flow. |
+| `paper/outmindlink` | **OutMindLink**, the bank↔economy bridge plugin (`/outmind cashout`, `/invest`, `/verify`, daily reward, cashout console signals). Our own plugin. The original source tree was lost, so the code here is a rebuilt source (CFR decompile of our production jar, fixed until it builds and matches it), maintained from here since 2026-09-03. |
 | `paper/outmindstats` | Tiny plugin exposing the stats placeholders used by the scoreboard and the name tags (`%outmind_profit%`, `%outmind_balance_short%`, `%outmind_playtime%`, `%outmind_discord%`). Reads `mirrored.json` and `links.json`, which the bridge publishes. |
 | `paper/skript` | Skript scripts: cashout status feedback (action bar, sounds, error dialogs), dealer giggle, luck potion bottle cleanup. |
 | `paper/scoreboard` | SimpleScore scoreboard config and the script that generates it. |
 
-Not included because they are third-party or closed source: **OutMindLink** (the vault plugin that holds
-balances in game, handles `/cashout`, `/invest` and the daily reward; the bridge talks to it through its
-outbox/inbox files and console commands), **NitroCasino** and **Vegas** (commercial casino game plugins).
-The odds of those games are theirs, not ours.
+Not included because they are third-party commercial plugins: **NitroCasino** and **Vegas** (the casino
+game tables). Their code is theirs; the odds we configure on them are documented in the Discord odds board.
+Everything else the casino runs on the Paper side (OutMindLink, Donut's Buckshot, OutmindStats, the Skript
+scripts, the scoreboard, the resource pack) is ours and lives under `paper/`.
 
 ## Money model
 
