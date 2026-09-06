@@ -69,7 +69,7 @@ function documents(live) {
           { name: 'We already paid', value: `**${live.paidOut}** over **${live.cashoutCount}** withdrawals. They are listed one by one in **#past-transaction**.`, inline: true },
           { name: 'The vault covers us', value: `**${live.coverage}** what we owe, live in **#vault**.`, inline: true },
           { name: 'Players rate us', value: live.ratingLine, inline: true },
-          { name: 'The money can only land on you', value: 'A withdrawal is always paid to the Minecraft account that proved itself with `/verify` in game. There is nowhere to type a different destination, so even someone who got into your Discord could not send a single dollar anywhere else. One Minecraft name is linked to one Discord at a time.', inline: false },
+          { name: 'The money can only land on you', value: 'A withdrawal is always paid to the Minecraft account that proved itself with `/link` in game. There is nowhere to type a different destination, so even someone who got into your Discord could not send a single dollar anywhere else. One Minecraft name is linked to one Discord at a time.', inline: false },
           { name: 'The books are kept, not improvised', value: 'A full report of the day is produced every morning: profit, volume, players, deposits against cash outs. The staff reads the same numbers you do, from the same ledger.', inline: false },
           { name: 'The code is being opened', value: 'The bank bot, the bridge and this Discord bot are going open source. Anyone will be able to read exactly how a balance is credited, how a payout is sent and what we store. A casino you can audit is a casino you do not have to believe.', inline: false },
         ],
@@ -86,7 +86,7 @@ function documents(live) {
         title: 'How it works',
         description: 'Four steps, about two minutes the first time, nothing to install.',
         fields: [
-          { name: '1. Link your account', value: `Type \`/verify\` in game on **${live.casinoHost}**. You get a 6 character code, valid 10 minutes. Run \`/verify\` here on Discord and paste it. That is what proves the Minecraft account is yours, and it is the only thing that does.`, inline: false },
+          { name: '1. Link your account', value: `Type \`/link\` in game on **${live.casinoHost}**. You get a 6 character code, valid 10 minutes. Run \`/link\` here on Discord and paste it. That is what proves the Minecraft account is yours, and it is the only thing that does.`, inline: false },
           { name: '2. Deposit', value: `On DonutSMP, run \`/pay ${live.bankAccount} <amount>\`. It lands on your casino balance within seconds and you get a DM to confirm. Investors can skip this step entirely, see **#beta-test**.`, inline: false },
           { name: '3. Play', value: `Join **${live.casinoHost}**. Your balance is already waiting, and every win or loss is written back to the ledger instantly.`, inline: false },
           { name: '4. Cash out', value: 'Use the panel in **#cashout**, or `/cashout` in game. The bank bot pays you on DonutSMP, usually within a minute, and the movement is posted publicly.', inline: false },
@@ -135,24 +135,35 @@ function documents(live) {
       channels: ['game-odds', 'odds', 'why-us'],
       embed: {
         color: COLOR,
-        title: 'The odds, published',
+        title: 'The games, and what they pay',
         description:
-          'Every casino has an edge, that is how the vault stays solvent. Ours is written down, per game, ' +
-          'as long-run return per $1 played. No other Minecraft casino shows you this line. ' +
-          'The code that moves the money is public, so these numbers can be checked instead of believed.',
+          'Every game on the floor can pay tonight. Here is what you are playing for, game by game. ' +
+          'And because everything here is verifiable: the long-run house line is published at the bottom. ' +
+          'No other Minecraft casino will show you that.',
         fields: [
           { name: "Donut's Buckshot", value:
-            'Measured by simulation on the actual game engine, 200,000 games per strategy. ' +
-            'Multipliers were raised on 2026-09-03: round 1 now pays **x1.7**, round 2 **x3**, the full run **x5**. ' +
-            'Cashing out after round 1 returns up to **$0.99** per $1 played, the friendliest line in the house. ' +
-            'A skilled player going for the full x5 returns about **$0.84**. Skill matters: careless play deep into the game returns far less.', inline: false },
-          { name: 'Chain (Discord)', value: '40% to double your stake, paid instantly. Returns **$0.80**. The roll is cryptographic randomness, not a game state anyone can nudge.', inline: true },
-          { name: 'Roulette (casino floor)', value: '37 slots. Single number or green pays 36x, red or black pays 2x. Returns **$0.973**, the classic European edge.', inline: true },
-          { name: 'Vegas roulette', value: 'Easy 30% for x3, medium 15% for x6, hard 9% for x10. All three return **$0.90**.', inline: true },
-          { name: 'Horse race', value: '30% for x3. Returns **$0.90**.', inline: true },
-          { name: 'Crash (Vegas)', value: 'Cash out early around x1.2 and the long-run return is about **$0.89**. The greedier the target, the bigger the house edge. Crashing is part of the game.', inline: true },
-          { name: 'Blackjack', value: 'The dealer plays his cards like everyone else, no forced hand, and stands on 17. Blackjack pays 3:2.', inline: true },
-          { name: 'Check us', value: 'The bank, the bridge and the Buckshot engine are open source: https://github.com/ryaanbcq/Outmind-Casino. The odds above were tightened on 2026-09-03, in your favor.', inline: false },
+            'Face the dealer, live rounds and blanks. Beat him once and cash **x1.7** - about half the players do. ' +
+            'Stay seated and the full run pays **x5**. Stopping after round 1 is the single best bet in the house: ' +
+            'nearly break-even against us. Or challenge another player: winner takes the whole pot, we keep nothing.', inline: false },
+          { name: 'Chain (Discord)', value: 'One tap, 40% to **double instantly**. Cryptographic roll, nothing to nudge.', inline: true },
+          { name: 'Roulette (casino floor)', value: 'Hit your number or green: **x36** - a 500K chip walks away with 18M. Red or black doubles you almost every other spin (48.6%).', inline: true },
+          { name: 'Crash (casino floor)', value: 'Ride the curve, jump when you dare. **x2 lands every other run**, x10 one run in ten, and the tail goes far higher. No rigged curve - flat edge whatever your target.', inline: true },
+          { name: 'Vegas roulette', value: 'Pick your nerve: 30% for **x3**, 15% for **x6**, 9% for **x10**.', inline: true },
+          { name: 'Horse race', value: 'Pick your horse, 30% to **triple**.', inline: true },
+          { name: 'Crash (Vegas)', value: 'Same thrill, Vegas flavor. Early jumpers keep the house honest.', inline: true },
+          { name: 'Slots (Drums)', value: 'The reels pay on **62% of spins**, with lines up to **x10** and paper combos up to x100.', inline: true },
+          { name: 'Stairs', value: 'Six floors, each pays more. Fall and you still keep the floor below you. The top pays **x25**.', inline: true },
+          { name: 'Lottery', value: 'Five tickets per play, your best one pays, up to **x12.6**. Every single play pays something.', inline: true },
+          { name: "Dead Man's Chest", value: 'Three chests, three difficulties. Hard is the gambler tier: survive all three and the average haul is near **x10**.', inline: true },
+          { name: 'Pyramid', value: 'Every run pays. 15% strike the **x3** center.', inline: true },
+          { name: 'Darts', value: 'Pure skill, no dice. Sharp hands multiply the bet; one bad click ends the run. Your aim, your edge.', inline: true },
+          { name: 'Blackjack', value: 'Straight rules: dealer stands on 17, no forced hand, blackjack pays **3:2**. The closest thing to a coin flip we sell.', inline: true },
+          { name: 'Coinflip, Jackpot, PvP tables', value: 'Player against player, winner takes the pot. **We take zero rake.**', inline: true },
+          { name: 'The fine print, published', value:
+            'Long-run return per $1M played: Buckshot **$990K** stopping at round 1 (the friendliest line anywhere) / $840K full run - ' +
+            'Crash floor $980K - Roulette floor $973K - Lottery $910K - Vegas roulette, races, slots, stairs, pyramid, chests ~$800-900K - Chain $800K. ' +
+            'Every casino on earth keeps an edge; ours is written down, audited from the decompiled engines on 2026-09-03, ' +
+            'and the code that moves the money is public: https://github.com/ryaanbcq/Outmind-Casino. Check us instead of trusting us.', inline: false },
         ],
       },
     },

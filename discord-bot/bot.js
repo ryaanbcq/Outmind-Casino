@@ -3,9 +3,9 @@
 //
 //  Deux fonctions :
 //
-//  1. LIAISON DE COMPTE. Le joueur tape /verify EN JEU (plugin
+//  1. LIAISON DE COMPTE. Le joueur tape /link EN JEU (plugin
 //     OutMindLink), recoit un code de 6 caracteres valable 10 min,
-//     et le rentre ici (slash /verify ou bouton du panneau).
+//     et le rentre ici (slash /link ou bouton du panneau).
 //     C'est le seul moyen de prouver qu'il possede le pseudo.
 //
 //  2. PANNEAU DE RETRAIT dans le channel cashout. Solde retirable,
@@ -33,7 +33,7 @@ const {
   Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags,
   EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
   ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits,
-  AttachmentBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder,
+  AttachmentBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder, ChannelType, ActivityType,
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -57,12 +57,22 @@ const chain = require('./chain');
 const OFFLINE_CASHOUT = true;
 
 const BOT_DIR = process.env.BOT_DIR || path.join(__dirname, '..', 'mineflayer-bot');
+// 2FA optionnelle des cashouts : meme coffre (twofa.json) que le bridge et le
+// bot bancaire, ecrit sous verrou inter-process par la lib
+const twofa = require(path.join(BOT_DIR, 'lib', 'twofa'))(BOT_DIR);
 // Identifiants Discord et panel : jamais en dur, tout vient de l'environnement
 // (discord-bot/.env via ecosystem.config.js) ou du .env de mineflayer-bot.
 const APP_ID = process.env.DISCORD_APP_ID || '';
 const GUILD_ID = process.env.DISCORD_GUILD_ID || '';
 if (!APP_ID || !GUILD_ID) { console.error('DISCORD_APP_ID / DISCORD_GUILD_ID absents de l\'environnement.'); process.exit(1); }
 const DISCORD_INVITE = process.env.DISCORD_INVITE || '';
+// Bulle de statut du bot (sous son nom dans la liste des membres) et texte
+// de son profil (description de l'application, onglet « A propos »). Les
+// deux se changent dans .env.discord : BOT_STATUS_TEXT, BOT_PROFILE_TEXT
+// (puis pm2 delete + start). Rien dans l'interface Discord ne permet de
+// les saisir pour un bot : c'est le code qui les pose a la connexion.
+const BOT_STATUS_TEXT = process.env.BOT_STATUS_TEXT || '\ud83d\udcb8 Your money is safe with Outmind';
+const BOT_PROFILE_TEXT = process.env.BOT_PROFILE_TEXT || '';
 
 const PTERO_PANEL_URL = process.env.PTERO_PANEL_URL || readBotEnvKey('PTERO_PANEL_URL') || '';
 const PTERO_SERVER_ID = process.env.PTERO_SERVER_ID || readBotEnvKey('PTERO_SERVER_ID') || '';
@@ -94,6 +104,13 @@ const VAULT_CHANNELS = ['vault', 'the-vault'];
 // au tableau. Rien a voir avec la blacklist, qui coupe les retraits.
 const LB_EXCLUDE = new Set((process.env.LEADERBOARD_EXCLUDE || '')
   .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean));
+// Feed des gros gains : tout delta de jeu >= ce seuil devient une annonce
+// publique dans #big-wins (ou #chat-with-us). 0 = feed coupe.
+const WINFEED_MIN = Number(process.env.WINFEED_MIN || 5e6);
+// Au-dessus de ce seuil, l'annonce devient une carte image (skin du joueur)
+// postee dans #jackpot. Idee de Ryan du 2026-09-03.
+const JACKPOT_MIN = Number(process.env.JACKPOT_MIN || 20e6);
+const { renderJackpotCard } = require('./jackpotcard');
 const VAULT_REFRESH_MS = 60 * 1000;
 const VAULT_TOP = 10;
 
@@ -147,28 +164,52 @@ const QUOTA_ENV = lireQuotasBotEnv();
 const DAILY_MAX = QUOTA_ENV.CASHOUT_DAILY_MAX === '0'
   ? Infinity
   : Number(QUOTA_ENV.CASHOUT_DAILY_MAX || 50000000);
-const DAILY_VAULT_PCT = Number(QUOTA_ENV.CASHOUT_DAILY_VAULT_PCT || 30) / 100;
+// '0' = plafond maison desactive (meme convention que CASHOUT_DAILY_MAX)
+const DAILY_VAULT_PCT = QUOTA_ENV.CASHOUT_DAILY_VAULT_PCT === '0'
+  ? Infinity
+  : Number(QUOTA_ENV.CASHOUT_DAILY_VAULT_PCT || 30) / 100;
+// plafond maison du jour pour une caisse donnee (Infinity = aucun)
+function houseCap(treasury) {
+  const byVault = (DAILY_VAULT_PCT !== Infinity && isFinite(treasury)) ? treasury * DAILY_VAULT_PCT : Infinity;
+  return Math.min(DAILY_MAX, byVault);
+}
 const PLAYER_MAX_GAMBLER = Number(QUOTA_ENV.CASHOUT_PLAYER_MAX_GAMBLER || 50000000);
 const PLAYER_MAX_INVESTOR = Number(QUOTA_ENV.CASHOUT_PLAYER_MAX_INVESTOR || 100000000);
 const INVESTOR_MIN = Number(QUOTA_ENV.INVESTOR_MIN || 3000000); // seuil du grade Investor, comme cote plugin
 
-// ---------- offre boost : 1 boost du serveur = 10M sur la balance ----------
+// ---------- offre boost : 1 boost du serveur = 20M sur la balance ----------
 // Un seul versement par compte Discord, a vie (claimed), meme si la personne
 // re-booste. Un boosteur pas encore verifie est mis en attente (pending) et
-// touche sa prime a l'instant du /verify. Kill switch : BOOST_OFFER=off.
-const BOOST_REWARD = 10000000;
+// touche sa prime a l'instant du /link. Kill switch : BOOST_OFFER=off.
+const BOOST_REWARD = 20000000; // 20M par boost (Ryan 2026-09-04)
 const BOOST_OFFER = (process.env.BOOST_OFFER || 'on') === 'on';
 const BOOST_FILE = path.join(__dirname, 'boost-offers.json');
 function loadBoosts() {
   try { return JSON.parse(fs.readFileSync(BOOST_FILE, 'utf8')); } catch { return { claimed: {}, pending: {} }; }
 }
 function saveBoosts(b) { fs.writeFileSync(BOOST_FILE, JSON.stringify(b, null, 2)); }
-function grantBoost(discordId, tag) {
+function grantBoost(discordId, tag, msgId) {
   const b = loadBoosts();
-  if (b.claimed[discordId]) return 'claimed';
+  if (!b.msgs) b.msgs = {};
+  // msgId = id du message systeme de boost Discord (UN message PAR boost) :
+  // par cette voie chaque boost paye, re-boost compris. Sans msgId (balayage
+  // des membres, /link), une seule prime de rattrapage par personne.
+  if (msgId) {
+    if (b.msgs[msgId]) return 'deja';
+  } else if (b.claimed[discordId]) {
+    return 'claimed';
+  }
   const link = state.links[discordId];
   if (!link) {
-    if (!b.pending[discordId]) { b.pending[discordId] = Date.now(); saveBoosts(b); }
+    if (msgId) b.msgs[msgId] = Date.now();
+    if (!b.pending[discordId]) b.pending[discordId] = Date.now();
+    if (!b.pending[discordId + ':dm']) {
+      b.pending[discordId + ':dm'] = Date.now();
+      client.users.fetch(discordId)
+        .then(u => u.send(`Thanks for boosting the server! Your **${shortMoney(BOOST_REWARD)}** reward is reserved: link your account with \`/link\` in game then /link here to claim it.`))
+        .catch(() => {});
+    }
+    saveBoosts(b);
     return 'pending';
   }
   adminLib.queueOrder({
@@ -176,11 +217,44 @@ function grantBoost(discordId, tag) {
     reason: 'Server boost reward (limited offer)', by: `boost:${tag}`,
   });
   delete b.pending[discordId];
+  delete b.pending[discordId + ':dm'];
   b.claimed[discordId] = Date.now();
+  if (msgId) b.msgs[msgId] = Date.now();
   saveBoosts(b);
   console.log(`Boost reward : ${BOOST_REWARD} pour ${link.player} (${tag})`);
+  // confirmation personnelle : sans ce DM le boosteur lié ne voyait rien
+  client.users.fetch(discordId)
+    .then(u => u.send(`Thanks for boosting the server! **${shortMoney(BOOST_REWARD)}** has just been credited to your casino balance (**${link.player}**). Enjoy!`))
+    .catch(() => {});
+  annoncerBoost(discordId, link.player).catch(e => console.warn('Annonce boost :', e.message));
   return 'granted';
 }
+// annonce publique dans #boosts : banniere generee maison (boost-card.js,
+// charte Outmind, skin du joueur en pied), en reponse au message systeme de
+// boost de Discord. Repli sur le simple render mc-heads si le rendu echoue.
+const { boostCard } = require('./boost-card');
+async function annoncerBoost(discordId, player) {
+  const channel = await findChannel(['boosts', 'boost']);
+  if (!channel) return;
+  const embed = new EmbedBuilder()
+    .setColor(0xF47FFF)
+    .setAuthor({ name: player, iconURL: `https://mc-heads.net/avatar/${encodeURIComponent(player)}/64` })
+    .setTitle('\u{1F680} Server Boosted!')
+    .setDescription(`<@${discordId}> just boosted the server and got **${money(BOOST_REWARD)}** on their casino balance.\n1 boost = **${shortMoney(BOOST_REWARD)}**, limited offer. Thank you **${player}**!`)
+    .setTimestamp();
+  let files = [];
+  try {
+    const buf = await boostCard(player, `+${money(BOOST_REWARD)} casino balance`);
+    files = [{ attachment: buf, name: 'boost.png' }];
+    embed.setImage('attachment://boost.png');
+  } catch (e) {
+    console.warn('Banniere boost :', e.message);
+    embed.setImage(`https://mc-heads.net/body/${encodeURIComponent(player)}/right`);
+  }
+  await channel.send({ embeds: [embed], files, allowedMentions: { users: [discordId] } });
+  console.log(`Annonce boost postee dans #boosts pour ${player}`);
+}
+
 const QUICK_AMOUNTS = [100000, 500000, 1000000];
 const COLOR = 0xa18cd1;            // debut du degrade maison A18CD1 -> FBC2EB
 const COLOR_BAD = 0xe05c5c;
@@ -289,6 +363,9 @@ function casinoSnapshot() {
     mirrored: bridge.mirrored || {},                 // solde en jeu (miroir du bridge)
     balances: readJson('balances.json', {}),         // grand livre banque
     treasury: (readJson('bank-state.json', {}).treasury) || 0,
+    // reserve panic (compte froid EzOkay) : comptee dans la fortune affichee,
+    // JAMAIS dans les quotas (c'est le compte actif qui paye)
+    reserve: (readJson('bank-state.json', {}).reserveSent) || 0,
     onlinePlayers: (online.players || []).map(p => String(p).toLowerCase()),
     blacklist: (readJson('blacklist.json', []) || []).map(p => String(p).toLowerCase()),
     // le bot Donut est considere mort au-dela de 2 min sans battement de coeur,
@@ -327,7 +404,7 @@ async function sendCommandApi(cmd) {
 
 async function fetchVerifyCodes() {
   const txt = await readFileApi(VERIFY_FILE);
-  if (txt == null) return []; // aucun /verify tape en jeu pour l'instant
+  if (txt == null) return []; // aucun /link tape en jeu pour l'instant
   const data = JSON.parse(txt);
   return Array.isArray(data.codes) ? data.codes : [];
 }
@@ -428,7 +505,7 @@ function dailyStatus(player) {
   const personalMax = isInvestor ? PLAYER_MAX_INVESTOR : PLAYER_MAX_GAMBLER;
   const personalUsed = (fresh.players || {})[key] || 0;
   const personalLeft = Math.max(0, personalMax - personalUsed);
-  const houseLeft = Math.max(0, Math.min(DAILY_MAX, snap.treasury * DAILY_VAULT_PCT) - (fresh.paid || 0));
+  const houseLeft = Math.max(0, houseCap(snap.treasury) - (fresh.paid || 0));
 
   return {
     grade: isInvestor ? 'Investor' : 'Gambler',
@@ -451,13 +528,19 @@ function parseAmount(arg) {
   return Math.floor(n * mult);
 }
 
-const money = (n) => '$' + Math.floor(n).toLocaleString('en-US');
-function shortMoney(n) {
-  if (n >= 1e9) return '$' + (n / 1e9).toFixed(n % 1e9 === 0 ? 0 : 1) + 'B';
-  if (n >= 1e6) return '$' + (n / 1e6).toFixed(n % 1e6 === 0 ? 0 : 1) + 'M';
-  if (n >= 1e3) return '$' + (n / 1e3).toFixed(n % 1e3 === 0 ? 0 : 1) + 'K';
-  return '$' + n;
-}
+// K/M/B partout (Ryan, 2026-09-03) : les joueurs comptent en millions.
+// Exact sous 10K, 2 decimales max ensuite ; l'exact reste dans les ledgers.
+const money = (n) => {
+  const v = Math.floor(n), a = Math.abs(v), s = v < 0 ? '-' : '';
+  const cut = (x) => String(Number(x.toFixed(2)));
+  if (a >= 1e9) return s + '$' + cut(a / 1e9) + 'B';
+  if (a >= 1e6) return s + '$' + cut(a / 1e6) + 'M';
+  if (a >= 1e4) return s + '$' + cut(a / 1e3) + 'K';
+  return s + '$' + a.toLocaleString('en-US');
+};
+// delegue a money() : l ancienne version ne gerait pas les NEGATIFS (aucun
+// seuil ne matchait, un net en perte sortait en $-3481234 dans /stats)
+function shortMoney(n) { return money(n); }
 
 // ---------- panneau permanent ----------
 
@@ -487,7 +570,7 @@ function panelMessage(treasury, botOnline) {
     .setTitle('⛁ OUTMIND CASINO ⛁')
     .setDescription(
       'Cash out your in-game balance to real DonutSMP dollars, paid by **OutmindCompany**.\n\n' +
-      '**1.** Type `/verify` in game on the casino server.\n' +
+      '**1.** Type `/link` in game on the casino server.\n' +
       '**2.** Hit **Link account** below and enter your code.\n' +
       '**3.** **Deposit** to fund your account, **Cash out** to take it back.\n\n' +
       'Your money is backed 1:1. Anything above the bank balance comes straight back to your in-game balance.'
@@ -924,12 +1007,12 @@ async function syncGrades() {
 async function applyCode(interaction, rawCode) {
   const code = String(rawCode).trim().toUpperCase();
   if (state.usedCodes.includes(code)) {
-    return 'This code has already been used. Type `/verify` in game to get a fresh one.';
+    return 'This code has already been used. Type `/link` in game to get a fresh one.';
   }
   const codes = await fetchVerifyCodes();
   const entry = codes.find(c => c.code === code && c.expiresAt > Date.now());
   if (!entry) {
-    return 'Invalid or expired code. Type `/verify` in game on the casino server to get one (valid 10 minutes).';
+    return 'Invalid or expired code. Type `/link` in game on the casino server to get one (valid 10 minutes).';
   }
   // un pseudo ne peut etre lie qu'a un seul compte Discord : sinon deux comptes
   // pourraient lancer des retraits concurrents sur le meme portefeuille
@@ -938,7 +1021,7 @@ async function applyCode(interaction, rawCode) {
     delete state.links[holder];
     console.log(`Lien transfere : ${entry.player} quitte ${holder} pour ${interaction.user.id}`);
     // le token Minecraft de l'auto-depot appartient a l'ancien titulaire : il
-    // ne doit jamais suivre le lien (un code /verify obtenu par ruse suffirait
+    // ne doit jamais suivre le lien (un code /link obtenu par ruse suffirait
     // a vider le portefeuille DonutSMP de la victime)
     try {
       if (entry.uuid && autodeposit.isAuthorized(entry.uuid)) { autodeposit.revoke(entry.uuid); console.log(`Auto-depot revoque pour ${entry.player} (lien transfere)`); }
@@ -963,7 +1046,7 @@ async function applyCode(interaction, rawCode) {
   // le grade suit immediatement, sans attendre le cycle de la minute
   syncGrades().catch(e => console.warn('Grades :', e.message));
   console.log(`Lien: ${interaction.user.tag} (${interaction.user.id}) <-> ${entry.player} (${entry.uuid})`);
-  // un boost fait avant le /verify se paie maintenant, a l'instant du lien
+  // un boost fait avant le /link se paie maintenant, a l'instant du lien
   if (BOOST_OFFER && loadBoosts().pending[interaction.user.id]) {
     grantBoost(interaction.user.id, interaction.user.tag);
     return `Your Discord is now linked to **${entry.player}**, and your **${shortMoney(BOOST_REWARD)} server boost reward** is on its way. Welcome to the OutMind Casino!`;
@@ -971,7 +1054,7 @@ async function applyCode(interaction, rawCode) {
   return `Your Discord is now linked to **${entry.player}**. Welcome to the OutMind Casino!`;
 }
 
-const NOT_LINKED = 'Link your account first: type `/verify` in game, then hit **Link account** and paste your code.';
+const NOT_LINKED = 'Link your account first: type `/link` in game, then hit **Link account** and paste your code.';
 
 // ---------- client ----------
 
@@ -992,12 +1075,22 @@ const client = new Client({
 
 client.once('clientReady', async () => {
   console.log(`Connecte en tant que ${client.user.tag}`);
+  try {
+    client.user.setPresence({ status: 'online', activities: [{ type: ActivityType.Custom, name: 'status', state: BOT_STATUS_TEXT }] });
+    console.log(`Statut du bot pose : ${BOT_STATUS_TEXT}`);
+  } catch (e) { console.warn('Statut du bot :', e.message); }
+  if (BOT_PROFILE_TEXT) {
+    try {
+      const app = await client.application.fetch();
+      if ((app.description || '') !== BOT_PROFILE_TEXT) { await app.edit({ description: BOT_PROFILE_TEXT }); console.log('Profil du bot mis a jour'); }
+    } catch (e) { console.warn('Profil du bot :', e.message); }
+  }
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   const commands = [
     new SlashCommandBuilder()
-      .setName('verify')
+      .setName('link')
       .setDescription('Link your Minecraft casino account')
-      .addStringOption(o => o.setName('code').setDescription('The code given by /verify in game').setRequired(true)),
+      .addStringOption(o => o.setName('code').setDescription('The code given by /link in game').setRequired(true)),
     new SlashCommandBuilder()
       .setName('chain')
       .setDescription('Double it or leave it: the community chain game')
@@ -1007,13 +1100,17 @@ client.once('clientReady', async () => {
     new SlashCommandBuilder()
       .setName('cashout')
       .setDescription('Cash out your casino balance to DonutSMP'),
-    // Meme reserve que le salon : le rapport montre la marge de la maison et
-    // les pertes nominatives, il n'a pas a etre tirable par un joueur.
+    new SlashCommandBuilder()
+      .setName('2fa')
+      .setDescription('Optional second factor on your cashouts: one panel, all the choices'),
+    // Publique : sans option c'est SA fiche, avec `player` celle d'un autre.
+    // L'option `day` reste le rapport quotidien de la maison, staff seulement
+    // (marge et pertes nominatives), verifiee dans le handler.
     new SlashCommandBuilder()
       .setName('stats')
-      .setDescription('Casino report for a day, today by default (staff only)')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-      .addStringOption(o => o.setName('day').setDescription('Date as YYYY-MM-DD, or "yesterday"').setRequired(false)),
+      .setDescription('Your casino record, or another player\'s')
+      .addStringOption(o => o.setName('player').setDescription('Another player, defaults to your linked account').setRequired(false))
+      .addStringOption(o => o.setName('day').setDescription('Staff only: daily house report, YYYY-MM-DD or "yesterday"').setRequired(false)),
     new SlashCommandBuilder()
       .setName('vouch')
       .setDescription(`Rate the casino, a 5 star vouch pays ${shortMoney(VOUCH_BONUS)}`),
@@ -1059,21 +1156,35 @@ client.once('clientReady', async () => {
   // Offre boost : l'event attrape le boost en direct, le balayage rattrape
   // ceux poses pendant un redemarrage du bot (meme logique que le /vouch).
   if (BOOST_OFFER) {
+    // chaque boost poste un message systeme Discord (types 8-11) dans #boosts :
+    // UN message PAR boost, donc le re-boost paye aussi. Le balayage des
+    // membres reste un filet (une seule prime par personne par cette voie).
+    const TYPES_BOOST = [8, 9, 10, 11];
+    client.on('messageCreate', (msg) => {
+      try {
+        if (msg.guildId !== GUILD_ID || !TYPES_BOOST.includes(msg.type)) return;
+        grantBoost(msg.author.id, msg.author.tag, msg.id);
+      } catch (e) { console.warn('Boost live :', e.message); }
+    });
+    // rattrapage des messages de boost arrives pendant un arret du bot
+    const rattraperBoostMsgs = async () => {
+      try {
+        const channel = await findChannel(['boosts', 'boost']);
+        if (!channel) return;
+        const msgs = await channel.messages.fetch({ limit: 50 });
+        for (const m of [...msgs.values()].reverse()) {
+          if (TYPES_BOOST.includes(m.type)) grantBoost(m.author.id, m.author.tag, m.id);
+        }
+      } catch (e) { console.warn('Rattrapage boosts :', e.message); }
+    };
+    setTimeout(rattraperBoostMsgs, 15 * 1000);
     const sweepBoosts = async () => {
       try {
         const guild = await aiGuild();
         if (!guild) return;
         const members = await guild.members.fetch();
         for (const m of members.values()) {
-          if (!m.premiumSince || m.user.bot) continue;
-          const st = grantBoost(m.id, m.user.tag);
-          if (st === 'pending') {
-            const b = loadBoosts();
-            if (!b.pending[m.id + ':dm']) {
-              b.pending[m.id + ':dm'] = Date.now(); saveBoosts(b);
-              m.send(`Thanks for boosting the server! Your **${shortMoney(BOOST_REWARD)}** reward is reserved: link your account with \`/verify\` in game then /verify here to claim it.`).catch(() => {});
-            }
-          }
+          if (m.premiumSince && !m.user.bot) grantBoost(m.id, m.user.tag);
         }
       } catch (e) { console.warn('Sweep boosts :', e.message); }
     };
@@ -1096,6 +1207,11 @@ client.once('clientReady', async () => {
   };
   cycle();
   setInterval(cycle, VAULT_REFRESH_MS);
+  setInterval(surveillerPanic, 30 * 1000);
+  setInterval(() => surveillerPayouts().catch(e => console.warn('Payout review :', e.message)), 30 * 1000);
+  setInterval(() => surveillerGels().catch(e => console.warn('Freeze review :', e.message)), 30 * 1000);
+  setInterval(majSalonsStats, 5 * 60 * 1000);
+  setTimeout(majSalonsStats, 20 * 1000);
   // Un tick toutes les 5 minutes suffit : la fenetre visee est une heure de la
   // journee, pas une minute precise. C'est aussi ce qui rattrape la machine
   // rallumee a midi.
@@ -1178,6 +1294,18 @@ client.on('interactionCreate', async (interaction) => {
           .setStyle(TextInputStyle.Short).setRequired(true).setMinLength(2).setMaxLength(10)));
     return interaction.showModal(modal).catch(() => {});
   }
+  if (interaction.isModalSubmit() && interaction.customId.startsWith('oc_2fa:')) {
+    await handle2faModal(interaction);
+    return;
+  }
+  if (interaction.isButton() && interaction.customId.startsWith('oc_2fa:')) {
+    await handle2faButton(interaction);
+    return;
+  }
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('oc_2fa:qsel:')) {
+    await handle2faSelect(interaction);
+    return;
+  }
   if (interaction.isModalSubmit() && interaction.customId === 'oc_chain:bet') {
     const fake = { user: interaction.user, options: { bet: interaction.fields.getTextInputValue('bet') } };
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -1222,9 +1350,13 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 async function handleCommand(interaction) {
-  if (interaction.commandName === 'verify') {
+  if (interaction.commandName === 'link') {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await interaction.editReply(await applyCode(interaction, interaction.options.getString('code')));
+    return;
+  }
+  if (interaction.commandName === '2fa') {
+    await handle2fa(interaction);
     return;
   }
   if (interaction.commandName === 'cashout') {
@@ -1236,9 +1368,15 @@ async function handleCommand(interaction) {
   // matin, celui-ci sert a regarder un jour precis sans encombrer le salon.
   // Le rendu prend quelques centaines de millisecondes, d'ou le defer.
   if (interaction.commandName === 'stats') {
-    if (!isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', flags: MessageFlags.Ephemeral });
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const raw = (interaction.options.getString('day') || '').trim().toLowerCase();
+    // sans `day`, c'est la fiche joueur, ouverte a tous
+    if (!raw) {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      await handleMyStats(interaction);
+      return;
+    }
+    if (!isAdmin(interaction)) return interaction.reply({ content: 'The daily house report is staff only. `/stats` alone shows your own record.', flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     let day = stats.todayKey();
     if (raw === 'yesterday' || raw === 'hier') day = stats.shiftDay(day, -1);
     else if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) day = raw;
@@ -1288,7 +1426,9 @@ async function handleCommand(interaction) {
     if (!isAdmin(interaction)) {
       return interaction.reply({ content: 'Staff only.', flags: MessageFlags.Ephemeral });
     }
-    if (!AUTODEPOSIT_ON) return interaction.reply({ content: AUTODEPOSIT_PAUSED, flags: MessageFlags.Ephemeral });
+    // PAS de verrou AUTODEPOSIT ici : /bank gere les comptes caissiers et le
+    // panic switch (/bank use), il doit marcher meme auto-depot coupe et
+    // SURTOUT si le compte principal vient d'etre banni (2026-09-04)
     return handleBank(interaction);
   }
 
@@ -1301,7 +1441,7 @@ async function handleCommand(interaction) {
   if (interaction.commandName === 'panel') {
     if (!isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', flags: MessageFlags.Ephemeral });
     const snap = casinoSnapshot();
-    const msg = await interaction.channel.send(panelMessage(snap.treasury, snap.botOnline));
+    const msg = await interaction.channel.send(panelMessage(snap.treasury + snap.reserve, snap.botOnline));
     state.panelMessageId = msg.id;
     panelSig = `${snap.treasury}|${snap.botOnline}`;
     channelCache.set(PANEL_CHANNELS[0], interaction.channel);
@@ -1309,6 +1449,214 @@ async function handleCommand(interaction) {
     await interaction.reply({ content: 'Panel posted.', flags: MessageFlags.Ephemeral });
     console.log(`Panneau deplace dans #${interaction.channel.name} par ${interaction.user.tag}`);
   }
+}
+
+// ---- /2fa : second facteur optionnel des cashouts ----
+// Les secrets ne transitent QUE par des modals (jamais en clair dans un
+// message) et ne sont stockes que hashes (scrypt) par la lib partagee.
+function twofaLabel(id) { return twofa.QUESTIONS[id].slice(0, 45); }
+
+function twofaModal(customId, title, fields) {
+  const modal = new ModalBuilder().setCustomId(customId).setTitle(title.slice(0, 45));
+  for (const [id, label, mask] of fields) {
+    modal.addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId(id).setLabel(label.slice(0, 45))
+        .setStyle(TextInputStyle.Short).setRequired(true).setMinLength(mask ? 6 : 2).setMaxLength(64)));
+  }
+  return modal;
+}
+
+async function handle2fa(interaction) {
+  const link = linkOf(interaction.user.id);
+  if (!link) return interaction.reply({ content: NOT_LINKED, flags: MessageFlags.Ephemeral });
+  const st = twofa.status(link.player);
+
+  const embed = new EmbedBuilder().setColor(COLOR).setTitle('Cashout 2FA');
+  const row = new ActionRowBuilder();
+  if (!st.enabled) {
+    embed.setDescription(
+      '2FA is **off** on your account.\n\n' +
+      'Turn it on and every cashout (in game, on Discord, or by whispering the bank bot) ' +
+      'will ask for a **password** or the answers to **two security questions** of your choice. ' +
+      'You pick how often: validate each cashout, or one validation opens a 30-minute window. ' +
+      'Revocable anytime, your secret is never stored in clear.');
+    row.addComponents(
+      new ButtonBuilder().setCustomId('oc_2fa:setup_pw').setLabel('Set up with a password').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('oc_2fa:setup_q').setLabel('Set up with questions').setStyle(ButtonStyle.Primary),
+    );
+    return interaction.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+  }
+
+  const lines = [
+    `2FA is **on**: ${st.mode === 'password' ? 'password' : 'two security questions'}.`,
+    `Scope: ${st.scope === 'window' ? 'one validation opens a **30-minute window**' : '**every cashout** asks for it'}.`,
+  ];
+  if (st.locked) lines.push(`\u26a0 Locked after too many wrong tries, until <t:${Math.floor(st.lockedUntil / 1000)}:t>.`);
+  else if (st.granted) lines.push(`\u2705 Currently validated until <t:${Math.floor(st.grantUntil / 1000)}:t>.`);
+  embed.setDescription(lines.join('\n'));
+  row.addComponents(
+    new ButtonBuilder().setCustomId('oc_2fa:validate').setLabel('Validate now').setStyle(ButtonStyle.Success).setDisabled(!!st.locked),
+    new ButtonBuilder().setCustomId('oc_2fa:revoke').setLabel('Disable 2FA').setStyle(ButtonStyle.Danger).setDisabled(!!st.locked),
+  );
+  return interaction.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
+}
+
+// etape scope : apres le choix du type, deux boutons « chaque cashout » /
+// « fenetre 10 min », puis modal (password) ou select des questions
+async function handle2faButton(interaction) {
+  const link = linkOf(interaction.user.id);
+  if (!link) return interaction.reply({ content: NOT_LINKED, flags: MessageFlags.Ephemeral });
+  const player = link.player;
+  const st = twofa.status(player);
+  const parts = interaction.customId.split(':');
+  const action = parts[1];
+
+  if (action === 'setup_pw' || action === 'setup_q') {
+    if (st.enabled) return interaction.reply({ content: '2FA is already enabled.', flags: MessageFlags.Ephemeral });
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`oc_2fa:scope:${action}:each`).setLabel('Validate every cashout').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`oc_2fa:scope:${action}:window`).setLabel('30-minute window').setStyle(ButtonStyle.Secondary),
+    );
+    return interaction.reply({ content: 'How often do you want to validate?', components: [row], flags: MessageFlags.Ephemeral });
+  }
+
+  if (action === 'scope') {
+    const [, , kind, scope] = parts;
+    if (st.enabled) return interaction.reply({ content: '2FA is already enabled.', flags: MessageFlags.Ephemeral });
+    if (kind === 'setup_pw') {
+      return interaction.showModal(twofaModal(`oc_2fa:setup_pw:${scope}`, 'Set your cashout password', [
+        ['password', 'Password (6-64 characters)', true],
+        ['confirm', 'Confirm password', true],
+      ]));
+    }
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`oc_2fa:qsel:${scope}`)
+      .setPlaceholder('Pick exactly two questions')
+      .setMinValues(2).setMaxValues(2)
+      .addOptions(Object.entries(twofa.QUESTIONS).map(([v, n]) =>
+        new StringSelectMenuOptionBuilder().setValue(v).setLabel(n.slice(0, 100))));
+    return interaction.reply({ content: 'Your two security questions:', components: [new ActionRowBuilder().addComponents(menu)], flags: MessageFlags.Ephemeral });
+  }
+
+  // validate / revoke : modal selon le mode
+  if (!st.enabled) return interaction.reply({ content: '2FA is not enabled. Run `/2fa` to set it up.', flags: MessageFlags.Ephemeral });
+  if (st.locked) return interaction.reply({ content: `2FA locked after too many wrong tries. Try again <t:${Math.floor(st.lockedUntil / 1000)}:R>.`, flags: MessageFlags.Ephemeral });
+  const fields = st.mode === 'password'
+    ? [['password', 'Your cashout password', true]]
+    : [['a1', twofaLabel(st.questionIds[0]), false], ['a2', twofaLabel(st.questionIds[1]), false]];
+  const title = action === 'revoke' ? 'Confirm to disable 2FA' : 'Validate your 2FA';
+  return interaction.showModal(twofaModal(`oc_2fa:${action}`, title, fields));
+}
+
+async function handle2faSelect(interaction) {
+  const link = linkOf(interaction.user.id);
+  if (!link) return interaction.reply({ content: NOT_LINKED, flags: MessageFlags.Ephemeral });
+  const scope = interaction.customId.split(':')[2];
+  const [q1, q2] = interaction.values;
+  return interaction.showModal(twofaModal(`oc_2fa:setup_q:${q1}:${q2}:${scope}`, 'Answer your two questions', [
+    ['a1', twofaLabel(q1), false],
+    ['a2', twofaLabel(q2), false],
+  ]));
+}
+
+async function handle2faModal(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const link = linkOf(interaction.user.id);
+  if (!link) return interaction.editReply(NOT_LINKED);
+  const player = link.player;
+  const parts = interaction.customId.split(':');
+  const action = parts[1];
+  const val = (id) => interaction.fields.getTextInputValue(id);
+
+  if (action === 'setup_pw') {
+    const scope = parts[2];
+    if (val('password') !== val('confirm')) return interaction.editReply('The two passwords do not match. Run `/2fa setup` again.');
+    const r = twofa.setupPassword(player, val('password'), scope);
+    if (!r.ok) return interaction.editReply(r.error === 'already_enabled' ? '2FA is already enabled.' : 'Password must be 6 to 64 characters.');
+    console.log(`2FA activee (password, ${scope}) pour ${player} (${interaction.user.tag})`);
+    return interaction.editReply(`**2FA is on.** ${scope === 'window' ? 'One validation will open a 30-minute window.' : 'Each cashout will ask for your password.'} Disable it anytime with \`/2fa revoke\`.`);
+  }
+  if (action === 'setup_q') {
+    const [q1, q2, scope] = [parts[2], parts[3], parts[4]];
+    const r = twofa.setupQuestions(player, { [q1]: val('a1'), [q2]: val('a2') }, scope);
+    if (!r.ok) return interaction.editReply(r.error === 'already_enabled' ? '2FA is already enabled.' : 'Both answers need at least 2 characters. Run `/2fa setup` again.');
+    console.log(`2FA activee (questions, ${scope}) pour ${player} (${interaction.user.tag})`);
+    return interaction.editReply(`**2FA is on.** Your cashouts will ask for your two answers. Disable it anytime with \`/2fa revoke\`.`);
+  }
+
+  const st = twofa.status(player);
+  const payload = st.mode === 'password'
+    ? { password: val('password') }
+    : { answers: { [st.questionIds[0]]: val('a1'), [st.questionIds[1]]: val('a2') } };
+
+  if (action === 'cash') {
+    const amount = Number(parts[2]);
+    const r = twofa.verify(player, payload);
+    if (!r.ok) {
+      if (r.error === 'locked') return interaction.editReply(`Too many wrong tries: 2FA locked until <t:${Math.floor(r.until / 1000)}:t>. Your money did not move.`);
+      return interaction.editReply(`Wrong ${st.mode === 'password' ? 'password' : 'answers'}. ${r.remaining ?? '?'} tries left. Your money did not move, hit Confirm again to retry.`);
+    }
+    return doCashout(interaction, amount);
+  }
+  if (action === 'revoke') {
+    const r = twofa.revoke(player, payload);
+    if (!r.ok) {
+      if (r.error === 'locked') return interaction.editReply(`Too many wrong tries: 2FA locked until <t:${Math.floor(r.until / 1000)}:t>.`);
+      return interaction.editReply(`Wrong ${st.mode === 'password' ? 'password' : 'answers'}. ${r.remaining ?? '?'} tries left.`);
+    }
+    console.log(`2FA revoquee pour ${player} (${interaction.user.tag})`);
+    return interaction.editReply('**2FA is off.** Your cashouts go through without a second factor again.');
+  }
+  // validate
+  const r = twofa.verify(player, payload);
+  if (!r.ok) {
+    if (r.error === 'locked') return interaction.editReply(`Too many wrong tries: 2FA locked until <t:${Math.floor(r.until / 1000)}:t>.`);
+    return interaction.editReply(`Wrong ${st.mode === 'password' ? 'password' : 'answers'}. ${r.remaining ?? '?'} tries left.`);
+  }
+  return interaction.editReply(r.scope === 'window'
+    ? `**Validated.** Your cashouts go through without asking again until <t:${Math.floor(r.until / 1000)}:t>.`
+    : '**Validated** for your next cashout. Go ahead.');
+}
+
+// ---- /mystats : la fiche d'un joueur, reconstruite depuis casino-deltas ----
+// Meme source que le rapport staff (aucune base a tenir). Ephemere : la fiche
+// ne pollue pas le salon, c'est au joueur de la partager s'il en est fier.
+async function handleMyStats(interaction) {
+  const link = linkOf(interaction.user.id);
+  const query = (interaction.options.getString('player') || '').trim();
+  const who = query || (link && link.player);
+  if (!who) {
+    return interaction.editReply('No linked account yet. Run `/link` in game first, or name a player.');
+  }
+  const norm = (x) => String(x).toLowerCase().replace(/^\./, '');
+  const deltas = (readLines('casino-deltas.jsonl') || [])
+    .map((l) => { try { return JSON.parse(l); } catch { return null; } })
+    .filter((o) => o && o.player && typeof o.delta === 'number' && norm(o.player) === norm(who));
+  if (!deltas.length) {
+    return interaction.editReply(`No recorded plays for **${who}** yet. The ledger starts at the first bet.`);
+  }
+  let net = 0, wins = 0, wonTotal = 0, best = deltas[0], worst = deltas[0];
+  for (const o of deltas) {
+    net += o.delta;
+    if (o.delta > 0) { wins++; wonTotal += o.delta; }
+    if (o.delta > best.delta) best = o;
+    if (o.delta < worst.delta) worst = o;
+  }
+  const embed = new EmbedBuilder()
+    .setColor(net >= 0 ? COLOR : COLOR_BAD)
+    .setTitle(`${who}`)
+    .setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(who)}/100`)
+    .setDescription(`# ${net >= 0 ? '+' : ''}${shortMoney(Math.floor(net))}\n-# ALL-TIME NET RESULT`)
+    .addFields(
+      { name: 'Plays', value: `**${deltas.length}**`, inline: true },
+      { name: 'Wins', value: `**${wins}** (${Math.round(100 * wins / deltas.length)}%)`, inline: true },
+      { name: 'Total won', value: `**${shortMoney(Math.floor(wonTotal))}**`, inline: true },
+      { name: 'Biggest win', value: `**${best.delta > 0 ? shortMoney(Math.floor(best.delta)) : 'none yet'}**`, inline: true },
+      { name: 'Worst hit', value: `**${worst.delta < 0 ? shortMoney(Math.floor(worst.delta)) : 'none yet'}**`, inline: true },
+      { name: 'First bet', value: `<t:${Math.floor((deltas[0].at || Date.now()) / 1000)}:D>`, inline: true },
+    )
+    .setFooter({ text: `${CASINO_HOST} \u00b7 rebuilt from the public ledger` });
+  return interaction.editReply({ embeds: [embed] });
 }
 
 // ---- /balance : les soldes vault, ouverte a tous ----
@@ -1414,6 +1762,52 @@ Then approve with the Microsoft account that owns ${username}. Waiting (up to 15
 
 async function handleButton(interaction) {
   const id = interaction.customId;
+  if (id.startsWith('prv:')) return await onPayoutReviewButton(interaction);
+  if (id.startsWith('frz:')) return await onFreezeReviewButton(interaction);
+
+  // ---- panic switch : approbation staff (DOUBLE confirmation) ----
+  if (id === 'panic_go' || id === 'panic_no' || id.startsWith('panic_confirm:') || id === 'panic_cancel') {
+    if (!isAdmin(interaction)) {
+      return interaction.reply({ content: 'Staff only.', flags: MessageFlags.Ephemeral });
+    }
+    if (id === 'panic_no') {
+      try { fs.unlinkSync(path.join(BOT_DIR, 'panic-detected.json')); } catch {}
+      console.log(`Panic : fausse alerte ecartee par ${interaction.user.tag}`);
+      return interaction.update({ content: `Panic dismissed as a false alarm by ${interaction.user.tag}.`, embeds: [], components: [] });
+    }
+    if (id === 'panic_go') {
+      // 2e verrou : un clic sur le bouton rouge n'active RIEN, il ouvre une
+      // confirmation finale ephemere (seul le cliqueur la voit)
+      const confirmer = new EmbedBuilder()
+        .setColor(0xE74C3C)
+        .setTitle('\u26a0  FINAL CONFIRMATION')
+        .setDescription(
+          '**Are you sure? This action is NOT reversible and has real consequences:**\n\n' +
+          '- The cashier switches to the panic bank and restarts\n' +
+          '- The takeover is announced to every player, in game and on Discord\n' +
+          '- **Every player balance is paid out and set to zero**\n\n' +
+          'Only confirm if the main account is really lost.');
+      const ligne = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('panic_confirm:' + interaction.message.id).setLabel('YES, ACTIVATE \u00b7 NOT REVERSIBLE').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('panic_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary));
+      return interaction.reply({ embeds: [confirmer], components: [ligne], flags: MessageFlags.Ephemeral });
+    }
+    if (id === 'panic_cancel') {
+      return interaction.update({ content: 'Cancelled, nothing was activated.', embeds: [], components: [] });
+    }
+    // panic_confirm:<id du message d'approbation>
+    if (fs.existsSync(path.join(BOT_DIR, 'panic-liquidation.json'))) {
+      return interaction.update({ content: 'Panic switch is already activated.', embeds: [], components: [] });
+    }
+    await interaction.deferUpdate();
+    // desarme les boutons du message d'approbation d'origine
+    try {
+      const origId = id.split(':')[1];
+      const orig = await interaction.channel.messages.fetch(origId);
+      await orig.edit({ components: [] });
+    } catch {}
+    return activerPanic(interaction);
+  }
 
   // ---- console admin ----
   // Le message est ephemere donc seul son destinataire le voit, mais la
@@ -1455,7 +1849,7 @@ async function handleButton(interaction) {
     const modal = new ModalBuilder().setCustomId('oc_m_link').setTitle('Link your account');
     modal.addComponents(new ActionRowBuilder().addComponents(
       new TextInputBuilder()
-        .setCustomId('code').setLabel('Your 6 character code from /verify')
+        .setCustomId('code').setLabel('Your 6 character code from /link')
         .setStyle(TextInputStyle.Short).setMinLength(6).setMaxLength(6).setRequired(true),
     ));
     return interaction.showModal(modal);
@@ -1568,8 +1962,23 @@ async function handleButton(interaction) {
   }
 
   if (id.startsWith('oc_go_')) {
+    const goAmount = Number(id.slice('oc_go_'.length));
+    // 2FA : la modal remplace le message de redirection ; le bon secret
+    // relance le cashout dans la foulee (handle2faModal, action 'cash')
+    const goLink = linkOf(interaction.user.id);
+    if (goLink && twofa.needsValidation(goLink.player)) {
+      const st = twofa.status(goLink.player);
+      if (st.locked) {
+        await interaction.deferUpdate();
+        return interaction.editReply({ content: `2FA locked after too many wrong tries. Try again <t:${Math.floor(st.lockedUntil / 1000)}:R>.`, embeds: [], components: [] });
+      }
+      const fields = st.mode === 'password'
+        ? [['password', 'Your cashout password', true]]
+        : [['a1', twofaLabel(st.questionIds[0]), false], ['a2', twofaLabel(st.questionIds[1]), false]];
+      return interaction.showModal(twofaModal(`oc_2fa:cash:${goAmount}`, 'Confirm cash out: your 2FA', fields));
+    }
     await interaction.deferUpdate();
-    return doCashout(interaction, Number(id.slice('oc_go_'.length)));
+    return doCashout(interaction, goAmount);
   }
 }
 
@@ -1659,12 +2068,17 @@ async function showCashout(interaction) {
 // le pont public ask-outmind (public-ai.js). Retourne { ok, player } ou
 // { ok: false, text } avec la raison affichable. Toutes les barrieres du
 // circuit standard s'appliquent, quelle que soit la porte d'entree.
-async function cashoutCore(discordId, amount, tag) {
+async function cashoutCore(discordId, amount, tag, onProgress) {
   const link = linkOf(discordId);
   if (!link) return { ok: false, text: NOT_LINKED };
   const player = link.player;
   const key = player.toLowerCase();
 
+  // 2FA d'abord, AVANT le verrou : le refus est sans effet de bord et la
+  // validation se fait par /2fa validate (modal), puis le joueur reclique
+  if (twofa.needsValidation(player)) {
+    return { ok: false, text: 'This cashout is protected by your **2FA**. Run `/2fa` here and hit **Validate** (or whisper `2fa <your secret>` to the bank bot on DonutSMP), then cash out again.' };
+  }
   // verrou pose de facon synchrone AVANT le premier await : deux clics rapides
   // passaient tous les deux le controle avant que le premier ne verrouille
   const held = cashoutLocks.get(key);
@@ -1683,20 +2097,27 @@ async function cashoutCore(discordId, amount, tag) {
   // prochain tick du bridge, sans ca un double clic passerait deux fois
   cashoutLocks.set(key, Date.now() + LOCK_MS);
   const sentAt = Date.now();
+  // ref unique de CETTE demande, recopiee par le plugin sur la ligne payee ou
+  // refusee : on n'accepte que l'issue qui la porte (un « pay me » du meme
+  // joueur au meme moment etait pris pour notre paiement, 2026-09-05)
+  const ref = 'dc-' + require('crypto').randomBytes(4).toString('hex');
   try {
-    await sendCommandApi(`outmind cashout ${player} ${Math.floor(amount)}`);
+    await sendCommandApi(`outmind cashout ${player} ${Math.floor(amount)} ${ref}`);
   } catch (e) {
     cashoutLocks.delete(key);
     console.error(`Cashout ${player} ${amount} : ${e.message}`);
     return { ok: false, text: 'The casino server did not answer. Nothing was taken from your balance, try again in a minute.' };
   }
 
+  // le debit reel n'est confirme qu'au prochain tick du bridge (~10 s) : on
+  // le dit tout de suite au joueur plutot que de le laisser fixer un ecran fige
+  if (onProgress) { try { await onProgress(); } catch { /* affichage seulement */ } }
   // Accuse de reception applicatif (2026-08-19) : le 204 du panel ne garantit
   // PAS l'execution de la commande console (vecu : cashout a player 20M avale
   // entre le panel et la console MC, aucune trace cote serveur, zero erreur).
   // La preuve d'execution est la ligne que le bridge ecrit dans la file payout
   // APRES que le plugin a debite le vault. Pas de ligne = rien n'a ete debite.
-  const ack = await waitForPayout(player, sentAt - 5000, 75000);
+  const ack = await waitForPayout(player, sentAt - 5000, 75000, ref);
   if (!ack) {
     cashoutLocks.delete(key);
     console.error(`Cashout ${player} ${amount} : commande acceptee par le panel mais aucun accuse (ni paye ni refuse) en 75 s`);
@@ -1704,7 +2125,7 @@ async function cashoutCore(discordId, amount, tag) {
   }
   if (ack.status === 'refused') {
     cashoutLocks.delete(key);
-    const most = `$${Math.floor(ack.allowed || 0).toLocaleString('en-US')}`;
+    const most = money(ack.allowed || 0);
     const texts = {
       over_allowed: `The game server says you can cash out at most ${most} right now. Your in-game balance moves in real time while you play, so stop the spins or ask a smaller amount.`,
       bot_offline: 'Cashouts are closed right now: the payout bot is offline on DonutSMP. Try again in a few minutes.',
@@ -1712,6 +2133,12 @@ async function cashoutCore(discordId, amount, tag) {
       nothing_asked: 'Nothing to cash out with that amount.',
       invalid_amount: 'The game server could not read that amount.',
       withdraw_failed: 'The withdrawal failed on the game server, try again in a minute.',
+      withdraw_pending: 'A withdrawal of yours is still being processed on DonutSMP ("pay me"). Wait a minute, then try again.',
+      pending: 'One cash out at a time: your previous cash out (menu, Discord or "pay me") is still going through. Wait for its confirmation, then try again.',
+      limit_personal: 'You reached your personal daily withdrawal limit. Come back after midnight (Paris time).',
+      limit_vault: 'The casino vault reached its daily withdrawal limit. Withdrawals reopen at midnight (Paris time).',
+      review: 'Your account is under a staff review, cash outs are paused. Your money is safe on your casino balance.',
+      twofa_required: 'This cashout is protected by your **2FA**. Run `/2fa` here and hit **Validate**, then cash out again.',
     };
     console.log(`Cashout Discord refuse : ${tag} -> ${player} ${amount} (${ack.reason}, allowed ${ack.allowed})`);
     return { ok: false, text: `${texts[ack.reason] || 'The game server refused this cashout.'} Nothing was taken from your balance.` };
@@ -1726,7 +2153,7 @@ async function cashoutCore(discordId, amount, tag) {
 // Match par joueur + horodatage, PAS par montant : le bridge peut plafonner et
 // payer moins que demande. Poll 3 s, latence normale ~20 s, budget 75 s sous
 // le LOCK_MS de 90 s pour que le verrou couvre toute l'attente.
-async function waitForPayout(player, notBefore, budgetMs) {
+async function waitForPayout(player, notBefore, budgetMs, ref) {
   const files = [
     [path.join(BOT_DIR, 'donut-payouts.jsonl'), 'paid'],
     [path.join(BOT_DIR, 'cashout-refusals.jsonl'), 'refused'],
@@ -1740,7 +2167,10 @@ async function waitForPayout(player, notBefore, budgetMs) {
       for (const l of lines) {
         try {
           const e = JSON.parse(l);
-          if (String(e.player || '').toLowerCase() === who && (e.at || 0) >= notBefore) return { status, ...e };
+          if (String(e.player || '').toLowerCase() !== who) continue;
+          // ligne portant une ref : seule la NOTRE compte (l'autre canal a la sienne)
+          if (ref && e.ref) { if (e.ref === ref) return { status, ...e }; continue; }
+          if ((e.at || 0) >= notBefore) return { status, ...e };
         } catch {}
       }
     }
@@ -1763,6 +2193,9 @@ async function transferCore(discordId, toRaw, amount, tag) {
 
   const info = await withdrawableFor(sender);
   if (info.blacklisted) return { ok: false, text: 'Your account is not allowed to move money. Contact staff.' };
+  if (twofa.needsValidation(sender)) {
+    return { ok: false, text: 'Transfers are protected by your **2FA**. Run `/2fa` and hit **Validate** first, then retry.' };
+  }
   const lock = cashoutLocks.get(sender.toLowerCase());
   if (lock && lock > Date.now()) return { ok: false, text: 'You have a cash out going through. Give it a minute, then transfer.' };
   if (!(amount >= 1)) return { ok: false, text: 'Amount must be at least $1.' };
@@ -1798,7 +2231,10 @@ async function transferCore(discordId, toRaw, amount, tag) {
 }
 
 async function doCashout(interaction, amount) {
-  const r = await cashoutCore(interaction.user.id, amount, interaction.user.tag);
+  const r = await cashoutCore(interaction.user.id, amount, interaction.user.tag, () => interaction.editReply({
+    content: '\u23f3 Order sent to the casino server, confirming the debit... (a few seconds)',
+    embeds: [], components: [],
+  }));
   if (!r.ok) return interaction.editReply({ content: r.text, embeds: [], components: [] });
   const embed = new EmbedBuilder()
     .setColor(COLOR_OK)
@@ -1950,7 +2386,10 @@ async function findChannel(names) {
   if (channelCache.has(key)) return channelCache.get(key);
   const guild = await client.guilds.fetch(GUILD_ID);
   const channels = await guild.channels.fetch();
-  const found = channels.find(c => c && names.includes(c.name) && c.isTextBased());
+  // ordre de preference respecte : le premier NOM qui existe gagne (avant, le
+  // premier salon rencontre qui matchait n importe quel nom gagnait, et la
+  // vitrine odds restait dans #why-us malgre la creation de #game-odds)
+  const found = names.map(n => channels.find(c => c && c.name === n && c.isTextBased())).find(Boolean);
   if (found) { channelCache.set(key, found); channelWarned.delete(key); }
   else if (!channelWarned.has(key)) {
     console.warn(`Channel #${key} introuvable.`);
@@ -2085,7 +2524,7 @@ async function ensurePanel() {
   if (!channel) return;
   const snap = casinoSnapshot();
   const sig = `${snap.treasury}|${snap.botOnline}`;
-  const payload = () => panelMessage(snap.treasury, snap.botOnline);
+  const payload = () => panelMessage(snap.treasury + snap.reserve, snap.botOnline);
 
   if (state.panelMessageId) {
     try {
@@ -2121,6 +2560,383 @@ async function ensurePanel() {
 // recourir a un emoji, que Ryan ne veut pas dans ce qu'on produit
 const rank = (i) => `\`#${i + 1}\``;
 
+// ---------- salons vocaux de stats ----------
+// Categorie "stats" creee par Ryan : deux salons vocaux dont le NOM affiche
+// l'etat ("bot : online/offline") et la fortune ("bank : $1.8B"). Renommes
+// toutes les 5 min SEULEMENT si la valeur a change : Discord limite les
+// renommages de salon a 2 par 10 min, le rename inutile brulerait le quota.
+let statsVocauxDerniers = {};
+async function majSalonsStats() {
+  try {
+    const guild = await client.guilds.fetch(GUILD_ID);
+    const channels = await guild.channels.fetch();
+    const cat = channels.find(c => c && c.type === 4 && /stats/i.test(c.name));
+    if (!cat) return;
+    const vocs = channels.filter(c => c && c.parentId === cat.id && c.isVoiceBased && c.isVoiceBased());
+    const snap = casinoSnapshot();
+    const cibles = [
+      [/bot/i, (snap.botOnline ? '\u{1F7E2} BOT : ONLINE' : '\u{1F534} BOT : OFFLINE')],
+      [/bank/i, '\u{1F4B0} BANK : ' + shortMoney(snap.treasury + snap.reserve)],
+    ];
+    for (const [re, nom] of cibles) {
+      const voc = vocs.find(c => re.test(c.name));
+      if (!voc || voc.name === nom || statsVocauxDerniers[String(re)] === nom) continue;
+      await voc.setName(nom);
+      statsVocauxDerniers[String(re)] = nom;
+      console.log('Salon stats renomme : ' + nom);
+    }
+  } catch (e) { console.warn('salons stats :', e.message); }
+}
+
+// ---------- revue des cashouts parques (#bank-console) ----------
+// Le bot mineflayer parque un cashout qu'il ne peut pas solder seul : 3 /pay
+// sans « You paid », ou /pay parti juste avant une coupure que la lecture de
+// caisse n'a pas pu trancher (autre mouvement pendant l'absence). Avant : une
+// ligne d'alerte dans #outmind-ai. Maintenant (demande Ryan 2026-09-06) : un
+// embed dans #bank-console avec la somme, la raison et des boutons staff.
+// La decision est ecrite dans mineflayer-bot/payout-orders.jsonl, le bot
+// l'applique a son prochain cycle (10 s) ; l'embed est mis a jour quand
+// l'entree disparait de bank-state.json.
+const PAYOUT_ORDERS_FILE = path.join(BOT_DIR, 'payout-orders.jsonl');
+function payoutReviewKey(p) { return `${String(p.player).toLowerCase()}|${Math.round(p.amount * 100)}|${p.at || 0}`; }
+function payoutReviewReason(p) {
+  if (p.suspect) {
+    return 'The `/pay` was sent right before a disconnect and never confirmed. At reconnect the treasury reading could not settle it (another movement happened meanwhile), so it **may already be paid**. Check the DonutSMP history before approving: approving pays again.';
+  }
+  return `${p.tries || 0} \`/pay\` attempts without a "You paid" confirmation. Usual causes: name refused by DonutSMP, anti-scam filter, server lag while the bot was sending.`;
+}
+function embedPayoutReview(p, rid, discordId, decision) {
+  const src = p.src === 'mp' ? 'whisper "pay me" on DonutSMP' : p.src === 'reserve' ? 'panic bank top-up' : p.src === 'liquidation' ? 'panic liquidation' : 'cash out menu / Discord';
+  const e = new EmbedBuilder()
+    .setColor(decision ? 0x95A5A6 : (p.suspect ? 0xE67E22 : 0xE74C3C))
+    .setTitle('\u26a0  \u1d04\u1d00\ua731\u029c \u1d0f\u1d1c\u1d1b \u0280\u1d07\u1d20\u026a\u1d07\u1d21')
+    .addFields(
+      { name: 'Player', value: `**${p.player}**${discordId ? ` \u00b7 <@${discordId}>` : ' \u00b7 no linked Discord account'}`, inline: false },
+      { name: 'Amount', value: `**${shortMoney(Math.floor(p.amount))}** (${Math.round(p.amount).toLocaleString('en-US')} $)`, inline: true },
+      { name: 'Requested', value: p.at ? `<t:${Math.floor(p.at / 1000)}:R>` : '?', inline: true },
+      { name: 'Source', value: src + (p.ref ? ` \u00b7 ref \`${p.ref}\`` : ''), inline: true },
+      { name: p.suspect ? 'Why it is suspicious' : 'Why it is stuck', value: payoutReviewReason(p), inline: false },
+      { name: 'Buttons', value: '**Approve** relaunches the `/pay` now \u00b7 **Refuse** cancels it and credits the amount back to the player in game \u00b7 **Already paid** settles the debt without paying (you checked the Donut history) \u00b7 **Ticket** pings the player to sort it out.', inline: false })
+    .setFooter({ text: `Outmind Casino \u00b7 review ${rid}` })
+    .setTimestamp();
+  if (p.ticketChId) e.addFields({ name: 'Ticket', value: p.ticketClosedBy ? `closed by ${p.ticketClosedBy}` : `<#${p.ticketChId}>`, inline: false });
+  if (decision) e.addFields({ name: 'Decision', value: decision, inline: false });
+  return e;
+}
+function rowPayoutReview(rid, discordId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`prv:retry:${rid}`).setLabel('Approve (pay)').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`prv:refund:${rid}`).setLabel('Refuse (credit back)').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`prv:drop:${rid}`).setLabel('Already paid').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`prv:ticket:${rid}`).setLabel(discordId ? 'Open a ticket' : 'No linked account').setStyle(ButtonStyle.Primary).setDisabled(!discordId));
+}
+// Reentrance : l'embed est poste apres un await, un second passage lance
+// pendant l'envoi ne voyait pas encore la revue en memoire et repostait
+// (vecu au premier test 2026-09-06 : deux embeds a 250 ms d'ecart).
+let payoutReviewBusy = false;
+async function surveillerPayouts() {
+  if (payoutReviewBusy) return;
+  payoutReviewBusy = true;
+  try { await surveillerPayoutsCorps(); } finally { payoutReviewBusy = false; }
+}
+async function surveillerPayoutsCorps() {
+  let bs;
+  try { bs = JSON.parse(fs.readFileSync(path.join(BOT_DIR, 'bank-state.json'), 'utf8')); } catch { return; }
+  const pending = Array.isArray(bs.pendingPayouts) ? bs.pendingPayouts : [];
+  if (!state.payoutReviews) state.payoutReviews = {};
+  const ch = await findChannel(STATS_CHANNELS);
+  if (!ch) return;
+  let changed = false;
+  // 1) nouveaux cashouts parques (le bot a renonce : alerted)
+  for (const p of pending) {
+    if (!p.alerted) continue;
+    const key = payoutReviewKey(p);
+    if (Object.values(state.payoutReviews).some(r => r.key === key)) continue;
+    const rid = require('crypto').randomBytes(3).toString('hex');
+    const discordId = discordIdOf(p.player) || discordIdOf('.' + p.player) || discordIdOf(String(p.player).replace(/^\./, ''));
+    const msg = await ch.send({ embeds: [embedPayoutReview(p, rid, discordId)], components: [rowPayoutReview(rid, discordId)] });
+    state.payoutReviews[rid] = { key, player: p.player, amount: p.amount, at: p.at, suspect: !!p.suspect, tries: p.tries || 0, src: p.src || null, ref: p.ref || null, msgId: msg.id, chId: ch.id, postedAt: Date.now() };
+    changed = true;
+    console.log(`Payout review : ${p.player} ${shortMoney(p.amount)} poste dans #${ch.name} (${rid})`);
+  }
+  // 2) revues dont l'entree a disparu (decision appliquee, ou soldee autrement)
+  for (const [rid, r] of Object.entries(state.payoutReviews)) {
+    const encore = pending.some(p => payoutReviewKey(p) === r.key);
+    if (encore) continue;
+    try {
+      const c = await client.channels.fetch(r.chId);
+      const m = await c.messages.fetch(r.msgId);
+      const fin = r.decision ? `${r.decision}\n**Applied by the bank bot** <t:${Math.floor(Date.now() / 1000)}:R>.` : `Settled outside this panel (paid, or handled by "!payout" whisper) <t:${Math.floor(Date.now() / 1000)}:R>.`;
+      await m.edit({ embeds: [embedPayoutReview({ ...r, alerted: true }, rid, discordIdOf(r.player), fin)], components: [] });
+    } catch (e) { console.warn('Payout review, cloture :', e.message); }
+    delete state.payoutReviews[rid];
+    changed = true;
+  }
+  if (changed) saveState();
+}
+async function onPayoutReviewButton(interaction) {
+  if (!isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', flags: MessageFlags.Ephemeral });
+  const [, action, rid] = interaction.customId.split(':');
+  if (action === 'close') {
+    let c = null;
+    try { c = await client.channels.fetch(rid); } catch {}
+    if (!c) return interaction.reply({ content: 'Channel already gone.', flags: MessageFlags.Ephemeral });
+    for (const rv of Object.values(state.payoutReviews || {})) if (rv.ticketChId === rid) { rv.ticketClosedBy = interaction.user.tag; }
+    saveState();
+    console.log(`Payout review : ticket ${c.name} ferme par ${interaction.user.tag}`);
+    await interaction.reply({ content: 'Closing the ticket...', flags: MessageFlags.Ephemeral }).catch(() => {});
+    return c.delete(`Ticket closed by ${interaction.user.tag}`);
+  }
+  const r = (state.payoutReviews || {})[rid];
+  if (!r) return interaction.reply({ content: 'This review is closed.', flags: MessageFlags.Ephemeral });
+  const discordId = discordIdOf(r.player);
+  if (action === 'ticket') {
+    // Vrai ticket (demande Ryan 2026-09-06 : pas un message dans #ticket) : un
+    // salon prive dans la categorie SUPPORT, comme ceux de Ticket Tool, visible
+    // par le joueur lie, les roles staff (ManageGuild/Administrator) et le bot.
+    if (!discordId) return interaction.reply({ content: `${r.player} has no linked Discord account.`, flags: MessageFlags.Ephemeral });
+    if (r.ticketChId) return interaction.reply({ content: `Ticket already open: <#${r.ticketChId}>`, flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const tch = await creerTicketRevue(interaction, rid, r.player, r.amount, discordId,
+      `Hi <@${discordId}>, the staff needs to check your cash out of **${shortMoney(Math.floor(r.amount))}** on DonutSMP (player **${r.player}**).\n\n` +
+      'Did you receive it on your DonutSMP account? Please answer here, with a screenshot of the DonutSMP message if you have one. ' +
+      'Every movement is logged on our side, so this is a quick check, and a staff member will settle it right after.');
+    r.ticketChId = tch.id; r.ticketBy = interaction.user.tag; saveState();
+    try { await interaction.message.edit({ embeds: [embedPayoutReview({ ...r, alerted: true }, rid, discordId, r.decision)], components: r.decision ? [] : [rowPayoutReview(rid, discordId)] }); } catch {}
+    console.log(`Payout review ${rid} : ticket ${tch.name} cree par ${interaction.user.tag} pour ${r.player}`);
+    return interaction.editReply({ content: `Ticket created: <#${tch.id}>` });
+  }
+  if (!['retry', 'refund', 'drop'].includes(action)) return interaction.reply({ content: 'Unknown action.', flags: MessageFlags.Ephemeral });
+  if (r.decision) return interaction.reply({ content: `Already decided: ${r.decision}`, flags: MessageFlags.Ephemeral });
+  const libelle = action === 'retry' ? 'APPROVED, /pay relaunched' : action === 'refund' ? 'REFUSED, amount credited back in game' : 'ALREADY PAID, settled without paying';
+  fs.appendFileSync(PAYOUT_ORDERS_FILE, JSON.stringify({ at: Date.now(), id: rid, action, player: r.player, amount: r.amount, by: interaction.user.tag }) + '\n');
+  r.decision = `**${libelle}** by ${interaction.user.tag} <t:${Math.floor(Date.now() / 1000)}:R>, waiting for the bank bot (~10 s).`;
+  saveState();
+  console.log(`Payout review ${rid} : ${action} par ${interaction.user.tag} pour ${r.player} ${shortMoney(r.amount)}`);
+  await interaction.update({ embeds: [embedPayoutReview({ ...r, alerted: true }, rid, discordId, r.decision)], components: [] });
+}
+
+// Salon de ticket prive pour une revue staff (cashout parque, gel) : dans la
+// categorie SUPPORT comme ceux de Ticket Tool, visible par le joueur lie, les
+// roles staff (ManageGuild/Administrator) et le bot. Bouton de fermeture.
+async function creerTicketRevue(interaction, rid, player, amount, discordId, description) {
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const channels = await guild.channels.fetch();
+  const panel = channels.find(c => c && c.name === 'ticket');
+  const parent = channels.find(c => c && c.type === ChannelType.GuildCategory && /support|ticket/i.test(c.name)) || (panel && panel.parent) || null;
+  const roles = await guild.roles.fetch();
+  const staff = roles.filter(ro => ro.id !== guild.id && !ro.managed
+    && (ro.permissions.has(PermissionFlagsBits.ManageGuild) || ro.permissions.has(PermissionFlagsBits.Administrator)));
+  const P = PermissionFlagsBits;
+  const overwrites = [
+    { id: guild.id, deny: [P.ViewChannel] },
+    { id: discordId, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.AttachFiles, P.EmbedLinks] },
+    { id: client.user.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.ManageChannels, P.ManageMessages] },
+    ...staff.map(ro => ({ id: ro.id, allow: [P.ViewChannel, P.SendMessages, P.ReadMessageHistory, P.ManageMessages] })),
+  ];
+  const nom = ('ticket-' + String(player).toLowerCase().replace(/[^a-z0-9]/g, '')).slice(0, 90);
+  const tch = await guild.channels.create({
+    name: nom, type: ChannelType.GuildText, parent: parent ? parent.id : undefined,
+    permissionOverwrites: overwrites,
+    topic: `Review ${rid} \u00b7 ${player} \u00b7 ${shortMoney(Math.floor(amount))}`,
+    reason: `Review ${rid} opened by ${interaction.user.tag}`,
+  });
+  const embed = new EmbedBuilder()
+    .setColor(0xA18CD1)
+    .setTitle('\u1d0f\u1d1c\u1d1b\u1d0d\u026a\u0274\u1d05 \u00b7 \u1d00\u1d04\u1d04\u1d0f\u1d1c\u0274\u1d1b \u1d04\u029c\u1d07\u1d04\u1d0b')
+    .setDescription(description)
+    .setFooter({ text: `Outmind Casino \u00b7 review ${rid}` })
+    .setTimestamp();
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`prv:close:${tch.id}`).setLabel('Close ticket (staff)').setStyle(ButtonStyle.Danger));
+  await tch.send({ content: `<@${discordId}>`, embeds: [embed], components: [row], allowedMentions: { users: [discordId] } });
+  return tch;
+}
+
+// ---------- revue des GELS de reconciliation (#bank-console) ----------
+// Le coupe-circuit du bridge gele un joueur quand une poussee en jeu lui
+// parait suspecte (plafond unitaire, ou repetition non couverte par un depot).
+// Son ecart bals - mirrored attend alors un humain. Avant : une ligne de texte
+// dans #outmind-ai. Maintenant : un embed ici, avec les depots recents pour
+// juger, et trois boutons. Approve = ordre unfreeze (la poussee part au tick
+// suivant), Refuse = debit de l'ecart puis unfreeze (rien ne part en jeu),
+// Ticket = salon prive avec le joueur lie. Ordres dans admin-orders.jsonl.
+const ADMIN_ORDERS_FILE = path.join(BOT_DIR, 'admin-orders.jsonl');
+function depotsRecents(player, depuisMs) {
+  const out = [];
+  const key = String(player).toLowerCase().replace(/^\./, '');
+  for (const line of readLines('transactions.jsonl') || []) {
+    let o; try { o = JSON.parse(line); } catch { continue; }
+    if (!o || String(o.player || '').toLowerCase().replace(/^\./, '') !== key) continue;
+    if (new Date(o.at).getTime() < depuisMs) continue;
+    if (o.type === 'depot' || o.type === 'retrait') out.push(o);
+  }
+  return out.slice(-8);
+}
+function embedFreezeReview(r, rid, discordId, decision) {
+  const e = new EmbedBuilder()
+    .setColor(decision ? 0x95A5A6 : 0xE67E22)
+    .setTitle('\u2744  \u0280\u1d07\u1d04\u1d0f\u0274\u1d04\u026a\u029f\u026a\u1d00\u1d1b\u026a\u1d0f\u0274 \u0493\u0280\u1d0f\u1d22\u1d07\u0274')
+    .addFields(
+      { name: 'Player', value: `**${r.player}**${discordId ? ` \u00b7 <@${discordId}>` : ' \u00b7 no linked Discord account'}`, inline: false },
+      { name: 'Waiting to be pushed in game', value: `**${shortMoney(Math.floor(r.pending))}** (${Math.round(r.pending).toLocaleString('en-US')} $)`, inline: true },
+      { name: 'Frozen', value: r.at ? `<t:${Math.floor(r.at / 1000)}:R>` : '?', inline: true },
+      { name: 'Why the bridge stopped', value: String(r.reason || '?').slice(0, 1000), inline: false },
+      { name: 'Bank movements (last 3 h)', value: r.depots && r.depots.length
+        ? r.depots.map(d => `<t:${Math.floor(new Date(d.at).getTime() / 1000)}:t> ${d.type === 'depot' ? 'deposit' : 'cash out'} ${shortMoney(Math.floor(d.amount))}`).join('\n')
+        : '_none recorded_', inline: false },
+      { name: 'Buttons', value: '**Approve** unfreezes and pushes the amount in game \u00b7 **Refuse** cancels the pending amount (nothing is pushed, the bank keeps it) then unfreezes \u00b7 **Ticket** opens a private channel with the player.', inline: false })
+    .setFooter({ text: `Outmind Casino \u00b7 freeze ${rid}` })
+    .setTimestamp();
+  if (r.ticketChId) e.addFields({ name: 'Ticket', value: r.ticketClosedBy ? `closed by ${r.ticketClosedBy}` : `<#${r.ticketChId}>`, inline: false });
+  if (decision) e.addFields({ name: 'Decision', value: decision, inline: false });
+  return e;
+}
+function rowFreezeReview(rid, discordId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`frz:approve:${rid}`).setLabel('Approve (unfreeze & push)').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`frz:refuse:${rid}`).setLabel('Refuse (cancel amount)').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`frz:ticket:${rid}`).setLabel(discordId ? 'Open a ticket' : 'No linked account').setStyle(ButtonStyle.Primary).setDisabled(!discordId));
+}
+let freezeReviewBusy = false;
+async function surveillerGels() {
+  if (freezeReviewBusy) return;
+  freezeReviewBusy = true;
+  try { await surveillerGelsCorps(); } finally { freezeReviewBusy = false; }
+}
+async function surveillerGelsCorps() {
+  const snap = casinoSnapshot();
+  const frozen = (readJson('bridge-state.json', {}) || {}).frozenPlayers || {};
+  if (!state.freezeReviews) state.freezeReviews = {};
+  const ch = await findChannel(STATS_CHANNELS);
+  if (!ch) return;
+  let changed = false;
+  for (const [player, info] of Object.entries(frozen)) {
+    const key = `${player.toLowerCase()}|${info.at}`;
+    if (Object.values(state.freezeReviews).some(r => r.key === key)) continue;
+    const rid = require('crypto').randomBytes(3).toString('hex');
+    const pending = Math.max(0, (snap.balances[player] || 0) - (snap.mirrored[player] || 0));
+    const discordId = discordIdOf(player) || discordIdOf('.' + player) || discordIdOf(String(player).replace(/^\./, ''));
+    const r = { key, player, at: info.at, reason: info.reason, pending, depots: depotsRecents(player, Date.now() - 3 * 3600 * 1000), postedAt: Date.now() };
+    const msg = await ch.send({ embeds: [embedFreezeReview(r, rid, discordId)], components: [rowFreezeReview(rid, discordId)] });
+    r.msgId = msg.id; r.chId = ch.id;
+    state.freezeReviews[rid] = r;
+    changed = true;
+    console.log(`Freeze review : ${player} ${shortMoney(pending)} poste dans #${ch.name} (${rid})`);
+  }
+  for (const [rid, r] of Object.entries(state.freezeReviews)) {
+    const encore = frozen[r.player] && `${r.player.toLowerCase()}|${frozen[r.player].at}` === r.key;
+    if (encore) continue;
+    try {
+      const c = await client.channels.fetch(r.chId);
+      const m = await c.messages.fetch(r.msgId);
+      const fin = r.decision ? `${r.decision}\n**Applied by the bridge** <t:${Math.floor(Date.now() / 1000)}:R>.` : `Unfrozen outside this panel <t:${Math.floor(Date.now() / 1000)}:R>.`;
+      await m.edit({ embeds: [embedFreezeReview(r, rid, discordIdOf(r.player), fin)], components: [] });
+    } catch (e) { console.warn('Freeze review, cloture :', e.message); }
+    delete state.freezeReviews[rid];
+    changed = true;
+  }
+  if (changed) saveState();
+}
+async function onFreezeReviewButton(interaction) {
+  if (!isAdmin(interaction)) return interaction.reply({ content: 'Staff only.', flags: MessageFlags.Ephemeral });
+  const [, action, rid] = interaction.customId.split(':');
+  const r = (state.freezeReviews || {})[rid];
+  if (!r) return interaction.reply({ content: 'This review is closed.', flags: MessageFlags.Ephemeral });
+  const discordId = discordIdOf(r.player);
+  if (action === 'ticket') {
+    if (!discordId) return interaction.reply({ content: `${r.player} has no linked Discord account.`, flags: MessageFlags.Ephemeral });
+    if (r.ticketChId) return interaction.reply({ content: `Ticket already open: <#${r.ticketChId}>`, flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const tch = await creerTicketRevue(interaction, rid, r.player, r.pending, discordId,
+      `Hi <@${discordId}>, the staff is checking a bank movement of **${shortMoney(Math.floor(r.pending))}** on your Outmind account (player **${r.player}**) before it lands in your vault.\n\n` +
+      'Can you tell us what you deposited recently, with a screenshot of the DonutSMP "You paid" message if you have one? A staff member will release it right after.');
+    r.ticketChId = tch.id; r.ticketBy = interaction.user.tag; saveState();
+    try { await interaction.message.edit({ embeds: [embedFreezeReview(r, rid, discordId, r.decision)], components: r.decision ? [] : [rowFreezeReview(rid, discordId)] }); } catch {}
+    console.log(`Freeze review ${rid} : ticket ${tch.name} cree par ${interaction.user.tag} pour ${r.player}`);
+    return interaction.editReply({ content: `Ticket created: <#${tch.id}>` });
+  }
+  if (!['approve', 'refuse'].includes(action)) return interaction.reply({ content: 'Unknown action.', flags: MessageFlags.Ephemeral });
+  if (r.decision) return interaction.reply({ content: `Already decided: ${r.decision}`, flags: MessageFlags.Ephemeral });
+  const by = interaction.user.tag;
+  if (action === 'refuse' && r.pending > 0) {
+    fs.appendFileSync(ADMIN_ORDERS_FILE, JSON.stringify({ kind: 'debit', player: r.player, amount: Math.round(r.pending * 100) / 100, reason: `Freeze refused (review ${rid})`, by: `refuse-freeze:${by}`, at: Date.now() }) + '\n');
+  }
+  fs.appendFileSync(ADMIN_ORDERS_FILE, JSON.stringify({ kind: 'unfreeze', player: r.player, by: `discord:${by}`, at: Date.now() }) + '\n');
+  const libelle = action === 'approve' ? `APPROVED, ${shortMoney(Math.floor(r.pending))} pushed in game` : `REFUSED, ${shortMoney(Math.floor(r.pending))} cancelled, nothing pushed`;
+  r.decision = `**${libelle}** by ${by} <t:${Math.floor(Date.now() / 1000)}:R>, waiting for the bridge (~10 s).`;
+  saveState();
+  console.log(`Freeze review ${rid} : ${action} par ${by} pour ${r.player} ${shortMoney(r.pending)}`);
+  await interaction.update({ embeds: [embedFreezeReview(r, rid, discordId, r.decision)], components: [] });
+}
+
+// ---------- panic switch ----------
+// Le bot mineflayer depose panic-detected.json quand le compte caissier se
+// fait ban. Ici : embed d'approbation (boutons staff) dans #outmind-ai.
+// RIEN ne bascule sans un clic humain sur ACTIVATE.
+async function surveillerPanic() {
+  let det;
+  try { det = JSON.parse(fs.readFileSync(path.join(BOT_DIR, 'panic-detected.json'), 'utf8')); } catch { return; }
+  if (!det || state.panicPromptFor === det.at) return;
+  const ch = await findChannel(['outmind-ai', 'admin']);
+  if (!ch) return;
+  const embed = new EmbedBuilder()
+    .setColor(0xE74C3C)
+    .setTitle('\u26a0  \u1d18\u1d00\u0274\u026a\u1d04 \ua731\u1d21\u026a\u1d1b\u1d04\u029c  \u00b7  \u1d00\u1d18\u1d18\u0280\u1d0f\u1d20\u1d00\u029f \u0280\u1d07\u01eb\u1d1c\u026a\u0280\u1d07\u1d05')
+    .setDescription(
+      `**${det.account || 'The cashier'} cannot connect to DonutSMP.**\n` +
+      '> Kick reason: `' + String(det.reason || '?').replace(/`/g, "'").slice(0, 220) + '`\n\n' +
+      'Approving will immediately:\n' +
+      `1. Switch the cashier to **${QUOTA_ENV.RESERVE_ACCOUNT || 'EzOkay'}** (panic bank)\n` +
+      '2. Announce the takeover in game on prestigiasmp.net\n' +
+      '3. Post the public notice in #cashout\n' +
+      '4. **Pay every player balance** on DonutSMP, then idle\n\n' +
+      'Nothing happens until a staff member clicks below.')
+    .setFooter({ text: 'Outmind Casino \u00b7 panic bank' })
+    .setTimestamp();
+  const boutons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('panic_go').setLabel('ACTIVATE PANIC SWITCH').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('panic_no').setLabel('Ignore (false alarm)').setStyle(ButtonStyle.Secondary));
+  await ch.send({ content: '<@1544749036823646341>', embeds: [embed], components: [boutons] }); // NotRyzn (nouveau compte de Ryan)
+  state.panicPromptFor = det.at;
+  saveState();
+  console.log('Panic : demande d\'approbation postee dans #' + ch.name);
+}
+
+function embedPanicPublic(reserve) {
+  return new EmbedBuilder()
+    .setColor(0xA18CD1)
+    .setTitle('\ud83d\udea8  \u1d18\u1d00\u0274\u026a\u1d04 \ua731\u1d21\u026a\u1d1b\u1d04\u029c \u1d00\u1d04\u1d1b\u026a\u1d20\u1d00\u1d1b\u1d07\u1d05')
+    .setDescription(
+      'A critical error has reached the bank bot.\n\n' +
+      `**Your money is safe.** Every balance is being paid out on DonutSMP by **${reserve}** within minutes.\n\n` +
+      'Thank you for trusting Outmind. The casino will be available again soon.\n' +
+      'For any issue, please open a ticket in <#1538554828345573406>.')
+    .setFooter({ text: 'Outmind Casino \u00b7 all payouts guaranteed by the panic bank' })
+    .setTimestamp();
+}
+
+async function activerPanic(interaction) {
+  const reserve = QUOTA_ENV.RESERVE_ACCOUNT || 'EzOkay';
+  // 1. ordre de liquidation (bot au redemarrage) + annonce (bridge)
+  fs.writeFileSync(path.join(BOT_DIR, 'panic-liquidation.json'),
+    JSON.stringify({ armedAt: Date.now(), by: interaction.user.tag, reserve }));
+  try { fs.unlinkSync(path.join(BOT_DIR, 'panic-detected.json')); } catch {}
+  // 2. bascule du caissier sur la panic bank (redemarre le bot mineflayer)
+  let bascule = 'OK';
+  try { bank.use(reserve); } catch (e) { bascule = 'ECHEC : ' + e.message; }
+  // 3. annonce publique dans #cashout
+  try {
+    const pub = await findChannel(PANEL_CHANNELS);
+    if (pub) await pub.send({ embeds: [embedPanicPublic(reserve)] });
+  } catch (e) { console.warn('Panic : embed public rate :', e.message); }
+  console.log(`Panic switch ACTIVE par ${interaction.user.tag} (bascule ${bascule})`);
+  await interaction.editReply({
+    content: `**Panic switch activated** by ${interaction.user.tag}. Cashier switch to **${reserve}**: ${bascule}. Liquidation starts when the bot is back in game (~30 s).`,
+    embeds: [], components: [],
+  }).catch(() => {});
+}
+
 function vaultMessage() {
   const snap = casinoSnapshot();
   const owed = Object.values(snap.balances).reduce((s, v) => s + (v > 0 ? v : 0), 0);
@@ -2150,9 +2966,9 @@ function vaultMessage() {
 
   const embed = new EmbedBuilder()
     .setColor(snap.botOnline ? COLOR : COLOR_BAD)
-    .setTitle('⛁  ᴛʜᴇ  ᴏᴜᴛᴍɪɴᴅ  ᴠᴀᴜʟᴛ  ⛁')
+    .setTitle('⛁  ᴏᴜᴛᴍɪɴᴅ  ᴠᴀᴜʟᴛ  ⛁')
     .setDescription(
-      `# ${shortMoney(snap.treasury)}\n-# VAULT FORTUNE  ·  BACKED 1:1 ON DONUTSMP\n\n` +
+      `# ${shortMoney(snap.treasury + snap.reserve)}\n-# VAULT FORTUNE  ·  BACKED 1:1 ON DONUTSMP\n\n` +
       `Come play at **${CASINO_HOST}**`)
     .addFields(
       // AUCUN bloc de code dans ces tuiles : un bloc prend toute la largeur et
@@ -2175,8 +2991,12 @@ async function ensureVault() {
   if (!channel) return;
   const payload = vaultMessage();
   // n'editer que si le contenu a bouge : sinon c'est une requete API par minute
-  // pour rien, et l'horodatage seul ferait clignoter le message
-  const sig = payload.embeds[0].data.description;
+  // pour rien, et l'horodatage seul ferait clignoter le message.
+  // La signature couvre TOUT l'embed (champs compris) : avant elle ne portait
+  // que la description (fortune totale), donc le Top players restait fige tant
+  // que la caisse DonutSMP ne bougeait pas (constat Ryan 2026-09-06 : un
+  // classement d'il y a deux heures affiche comme courant).
+  const sig = JSON.stringify(payload.embeds[0].data);
   if (state.vaultMessageId && sig === vaultSignature) return;
 
   if (state.vaultMessageId) {
@@ -2314,7 +3134,12 @@ async function closeVouchWindow(discordId, why) {
   saveState();
   try {
     const channel = await vouchChannel();
-    if (channel) await channel.permissionOverwrites.delete(discordId, why);
+    if (channel) {
+      if (w && w.warnMsgId) {
+        try { await channel.messages.delete(w.warnMsgId); } catch {}
+      }
+      await channel.permissionOverwrites.delete(discordId, why);
+    }
   } catch (e) { console.warn('Vouch, fermeture de la parole :', e.message); }
   if (w) console.log(`Vouch : parole fermee pour ${w.player} (${why})`);
 }
@@ -2386,8 +3211,17 @@ async function onVouchMessage(message) {
     // On repond DANS le salon, visible a coup sur, et on trace en console.
     const short = `Your vouch is a bit short (${text.trim().length}/${VOUCH_MIN_CHARS} characters). Add a little more detail and post again, the ${money(VOUCH_BONUS)} bonus lands right after.`;
     console.log(`Vouch : message trop court de ${w.player} (${text.trim().length} car.), fenetre laissee ouverte`);
-    try { await message.reply(short); }
-    catch { try { await message.author.send(short); } catch {} }
+    // le vouch trop court est supprime ; l'avertissement reste dans le salon
+    // (un seul a la fois) et disparait des que le vouch valide arrive ou que
+    // la fenetre se ferme
+    try { await message.delete(); } catch (e) { console.warn('Vouch : suppression du message court impossible : ' + e.message); }
+    if (!w.warnMsgId) {
+      try {
+        const avert = await message.channel.send(`<@${message.author.id}> ${short}`);
+        w.warnMsgId = avert.id;
+        saveState();
+      } catch {}
+    }
     return; // fenetre laissee ouverte, il peut recommencer
   }
 
@@ -2596,10 +3430,12 @@ function pitchLive() {
     investorMax: shortMoney(PLAYER_MAX_INVESTOR),
     investorMin: money(INVESTOR_MIN),
     dailyMax: isFinite(DAILY_MAX) ? shortMoney(DAILY_MAX) : 'no fixed cap',
-    houseCapText: isFinite(DAILY_MAX)
-      ? `the lower of **${shortMoney(DAILY_MAX)}** and **${Math.round(DAILY_VAULT_PCT * 100)}% of the vault**`
-      : `**${Math.round(DAILY_VAULT_PCT * 100)}% of the vault**`,
-    vaultPct: Math.round(DAILY_VAULT_PCT * 100) + '%',
+    houseCapText: !isFinite(houseCap(1))
+      ? '**no house-wide cap** (only your personal daily limit applies)'
+      : isFinite(DAILY_MAX) && DAILY_VAULT_PCT !== Infinity
+        ? `the lower of **${shortMoney(DAILY_MAX)}** and **${Math.round(DAILY_VAULT_PCT * 100)}% of the vault**`
+        : isFinite(DAILY_MAX) ? `**${shortMoney(DAILY_MAX)}**` : `**${Math.round(DAILY_VAULT_PCT * 100)}% of the vault**`,
+    vaultPct: DAILY_VAULT_PCT === Infinity ? 'none' : Math.round(DAILY_VAULT_PCT * 100) + '%',
     autopayMax: money(AUTOPAY_MAX),
     autodepositOn: AUTODEPOSIT_ON,
   };
@@ -2678,7 +3514,7 @@ function houseDaily() {
   const d = readJson('daily-cap.json', {});
   const fresh = d.day === today ? d : { paid: 0, players: {} };
   const treasury = casinoSnapshot().treasury;
-  const cap = Math.min(DAILY_MAX, treasury * DAILY_VAULT_PCT);
+  const cap = houseCap(treasury);
   return {
     cap, paid: fresh.paid || 0, left: Math.max(0, cap - (fresh.paid || 0)), players: fresh.players || {},
     // sorties manuelles de la console : hors plafond, mais l'argent sort quand
@@ -2701,7 +3537,9 @@ function adminPanel() {
       { name: 'Vault', value: money(o.treasury), inline: true },
       { name: 'Owed to players', value: money(o.owed), inline: true },
       { name: 'Coverage', value: cov, inline: true },
-      { name: 'Daily cap (players)', value: `${money(h.paid)} out of ${money(h.cap)}\n${money(h.left)} left`
+      { name: 'Daily cap (players)', value: isFinite(h.cap)
+          ? `${money(h.paid)} out of ${money(h.cap)}\n${money(h.left)} left`
+          : `${money(h.paid)} paid today\nno house-wide cap (personal limits only)`
         + (h.manualPaid ? `\nplus ${money(h.manualPaid)} paid by hand` : ''), inline: true },
       { name: 'Bank bot', value: o.botOnline ? 'online' : 'OFFLINE', inline: true },
       { name: 'Lifetime profit', value: money(o.profit) + `\n${o.rounds.toLocaleString('en-US')} rounds`, inline: true },
@@ -2950,8 +3788,46 @@ async function postAudit(act, user) {
 
 // Au premier demarrage on part de la fin des fichiers, sinon tout l'historique
 // serait rejoue d'un coup.
+// ---- feed des gros gains ----
+// casino-deltas.jsonl est ecrit par le bridge : {at, player, delta} par coup.
+// Lecture pure (aucun effet sur l'argent) ; les comptes de LEADERBOARD_EXCLUDE
+// n'apparaissent pas, et une rafale est bornee a 5 annonces pour ne jamais
+// inonder le salon apres un rattrapage d'offset.
+async function onCasinoDeltas(rows) {
+  if (!WINFEED_MIN) return;
+  const wins = rows.filter(o => o && typeof o.delta === 'number' && o.delta >= WINFEED_MIN
+    && o.player && !LB_EXCLUDE.has(String(o.player).toLowerCase().replace(/^\./, '')));
+  if (!wins.length) return;
+  const channel = await findChannel(['big-wins', 'chat-with-us']);
+  if (!channel) throw new Error('channel absent');
+  for (const w of wins.slice(-5)) {
+    if (w.delta >= JACKPOT_MIN) {
+      // carte image dans #jackpot ; si le rendu casse (police, skin, canvas),
+      // on retombe sur l'embed simple plutot que de perdre l'annonce
+      try {
+        const png = await renderJackpotCard(w.player, w.delta);
+        const jackpotChannel = await findChannel(['jackpot', 'big-wins', 'chat-with-us']);
+        if (jackpotChannel) {
+          await jackpotChannel.send({
+            content: `\u{1F3B0} **${w.player}** just hit the jackpot: **${shortMoney(Math.floor(w.delta))}**`,
+            files: [new AttachmentBuilder(png, { name: `jackpot-${String(w.player).replace(/[^\w.-]/g, '')}.png` })],
+          });
+          console.log(`Jackpot : ${w.player} +${Math.floor(w.delta)} carte postee dans #${jackpotChannel.name}`);
+          continue;
+        }
+      } catch (e) { console.warn('Carte jackpot :', e.message); }
+    }
+    const embed = new EmbedBuilder()
+      .setColor(COLOR)
+      .setDescription(`# \u{1F3B0} ${w.player} just won **${shortMoney(Math.floor(w.delta))}**\n-# on the casino floor \u00b7 try your luck`)
+      .setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(w.player)}/64`);
+    await channel.send({ embeds: [embed] });
+    console.log(`Feed des gains : ${w.player} +${Math.floor(w.delta)} annonce dans #${channel.name}`);
+  }
+}
+
 function startWatchers() {
-  for (const [key, file] of [['payoutOffset', 'payout-results.jsonl'], ['txOffset', 'transactions.jsonl']]) {
+  for (const [key, file] of [['payoutOffset', 'payout-results.jsonl'], ['txOffset', 'transactions.jsonl'], ['winFeedOffset', 'casino-deltas.jsonl']]) {
     if (state[key] == null) { state[key] = (readLines(file) || []).length; saveState(); }
   }
   // VERROU de reentrance : un tick lent (rate limit Discord apres un wipe,
@@ -2967,6 +3843,8 @@ function startWatchers() {
       catch (e) { console.warn('Suivi des paiements :', e.message); }
       try { await tail('txOffset', 'transactions.jsonl', onTransactions); }
       catch (e) { if (e.message !== 'channel absent') console.warn('Journal des transactions :', e.message); }
+      try { await tail('winFeedOffset', 'casino-deltas.jsonl', onCasinoDeltas); }
+      catch (e) { if (e.message !== 'channel absent') console.warn('Feed des gains :', e.message); }
     } finally { polling = false; }
   }, POLL_MS);
 }

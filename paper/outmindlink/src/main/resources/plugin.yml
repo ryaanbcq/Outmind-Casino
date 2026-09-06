@@ -13,6 +13,7 @@ commands:
   invest:
     description: Donner une somme au casino, definitivement (capital maison).
     usage: /invest <montant|max>
-  verify:
+  link:
     description: Obtenir un code pour lier son compte Discord au casino.
-    usage: /verify
+    usage: /link
+    aliases: [verify]

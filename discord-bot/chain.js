@@ -55,7 +55,15 @@ function load() {
   return { chain: null, history: [], board: null, eventIds: [] };
 }
 function save(s) { fs.writeFileSync(CHAIN_FILE, JSON.stringify(s, null, 2)); }
-function fmt(n) { return '$' + Math.floor(n).toLocaleString('en-US'); }
+// meme format K/M/B que le reste du bot (Ryan, 2026-09-03)
+function fmt(n) {
+  const v = Math.floor(n), a = Math.abs(v), s = v < 0 ? '-' : '';
+  const cut = (x) => String(Number(x.toFixed(2)));
+  if (a >= 1e9) return s + '$' + cut(a / 1e9) + 'B';
+  if (a >= 1e6) return s + '$' + cut(a / 1e6) + 'M';
+  if (a >= 1e4) return s + '$' + cut(a / 1e3) + 'K';
+  return s + '$' + a.toLocaleString('en-US');
+}
 // tirage au crypto, pas Math.random : auditable et non biaisable par l'etat du process
 function roll() { return crypto.randomInt(100000) < Math.round(DOUBLE_CHANCE * 100000); }
 function findChan() {
@@ -194,7 +202,7 @@ function confirmPayload(kind, amount, token) {
 
 async function askStart(interaction) {
   const link = deps.linkOf(interaction.user.id);
-  if (!link) return { content: 'Link your account first: `/verify` in game on prestigiasmp.net, then `/verify` here.' };
+  if (!link) return { content: 'Link your account first: `/link` in game on prestigiasmp.net, then `/link` here.' };
   const raw = interaction.options.getString ? interaction.options.getString('bet') : interaction.options.bet;
   const amount = parseBet(raw);
   if (!amount) return { content: 'I could not read that bet. Try `10m`, `500k` or a full number.' };
@@ -214,7 +222,7 @@ async function askStart(interaction) {
 
 async function askDouble(interaction) {
   const link = deps.linkOf(interaction.user.id);
-  if (!link) return { content: 'Link your account first (`/verify` in game, then here).' };
+  if (!link) return { content: 'Link your account first (`/link` in game, then `/link` here).' };
   const s = load();
   if (expireIfDue(s)) {
     await clearEvents(s); save(s); await refreshBoard();
@@ -251,7 +259,7 @@ async function confirmLocked(interaction, token) {
   pendings.delete(token);
 
   const link = deps.linkOf(p.userId);
-  if (!link) return { content: 'Link your account first (`/verify` in game, then here).' };
+  if (!link) return { content: 'Link your account first (`/link` in game, then `/link` here).' };
 
   const s = load();
   if (expireIfDue(s)) {

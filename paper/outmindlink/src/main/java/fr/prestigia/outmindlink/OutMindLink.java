@@ -325,7 +325,7 @@ implements Listener {
             this.doInvest(p, args.length >= 1 ? args[0] : null);
             return true;
         }
-        if (command.getName().equalsIgnoreCase("verify")) {
+        if (command.getName().equalsIgnoreCase("link")) {
             if (!(sender instanceof Player)) {
                 sender.sendMessage("Commande joueur uniquement.");
                 return true;
@@ -336,6 +336,15 @@ implements Listener {
         }
         if (!command.getName().equalsIgnoreCase("outmind")) {
             return false;
+        }
+        if (args.length >= 2 && args[0].equalsIgnoreCase("twofarefresh")) {
+            // console uniquement (relais OutmindStats /2fa refresh) : demande
+            // au bridge de refermer la fenetre de validation 2FA du joueur
+            if (sender instanceof Player) {
+                return true;
+            }
+            this.appendOutbox(this.obj("type", "twofa_refresh", "player", args[1]));
+            return true;
         }
         if (args.length >= 1 && args[0].equalsIgnoreCase("daily")) {
             if (!(sender instanceof Player)) {
@@ -350,13 +359,19 @@ implements Listener {
             sender.sendMessage("Usage: /outmind <cashout|daily>");
             return true;
         }
+        // ref facultative : jeton du canal appelant (bot DonutSMP, Discord),
+        // recopie dans chaque ligne d'outbox de CETTE demande pour que chaque
+        // canal ne reconnaisse que sa propre issue (deux canaux confirmaient le
+        // meme paiement en s'accordant par joueur seulement, 2026-09-05)
+        String ref;
         if (sender instanceof Player) {
             Player p;
             target = (Player)sender;
             amountArg = args.length >= 2 ? args[1] : null;
+            ref = args.length >= 3 ? args[2] : null;
         } else {
             if (args.length < 2) {
-                sender.sendMessage("Usage console: outmind cashout <joueur> [montant|max]");
+                sender.sendMessage("Usage console: outmind cashout <joueur> [montant|max] [ref]");
                 return true;
             }
             target = Bukkit.getPlayerExact((String)args[1]);
@@ -369,8 +384,12 @@ implements Listener {
                 target = op;
             }
             amountArg = args.length >= 3 ? args[2] : null;
+            ref = args.length >= 4 ? args[3] : null;
         }
-        this.doCashout(target, amountArg);
+        if (ref != null && !ref.matches("[A-Za-z0-9_-]{1,32}")) {
+            ref = null;
+        }
+        this.doCashout(target, amountArg, ref);
         return true;
     }
 
@@ -381,21 +400,38 @@ implements Listener {
         }
     }
 
-    private void refuseCashout(String name, double asked, double allowed, String reason) {
-        this.getLogger().info("Cashout refuse : " + name + " demande " + String.format("%.0f", asked) + ", autorise " + String.format("%.0f", allowed) + " (" + reason + ")");
-        this.appendOutbox(this.obj("type", "cashout_refused", "player", name, "amount", asked, "allowed", allowed, "reason", reason));
+    private JsonObject avecRef(JsonObject o, String ref) {
+        if (ref != null) {
+            o.addProperty("ref", ref);
+        }
+        return o;
+    }
+
+    private void refuseCashout(String name, double asked, double allowed, String reason, String ref) {
+        this.getLogger().info("Cashout refuse : " + name + " demande " + String.format("%.0f", asked) + ", autorise " + String.format("%.0f", allowed) + " (" + reason + ")" + (ref != null ? " ref " + ref : ""));
+        this.appendOutbox(this.avecRef(this.obj("type", "cashout_refused", "player", name, "amount", asked, "allowed", allowed, "reason", reason), ref));
         Bukkit.dispatchCommand((CommandSender)Bukkit.getConsoleSender(), (String)("cashoutrefused " + name + " " + reason));
     }
 
-    private void doCashout(OfflinePlayer p, String amountArg) {
+    private void doCashout(OfflinePlayer p, String amountArg, String ref) {
         double amount;
         String name = p.getName();
         if (name == null) {
             return;
         }
+        String keyPending = name.toLowerCase();
+        if ("PENDING".equals(this.txStatus.get(keyPending))) {
+            this.tell(p, PREFIX + "\u00a7c\u00a7lOne cashout at a time\u00a7f\u00a7l: your previous cashout is still on its way. Give it a few seconds.");
+            // refus ecrit dans l'outbox (et plus seulement dit en chat) : le canal
+            // appelant (Discord, bot DonutSMP) sait tout de suite que SA demande
+            // n'a pas ete prise, au lieu d'attendre puis de s'attribuer le
+            // paiement de l'autre
+            this.refuseCashout(name, 0.0, 0.0, "pending", ref);
+            return;
+        }
         if (!this.isBotOnline()) {
             this.tell(p, PREFIX + "\u00a7c\u00a7lCashouts are closed right now\u00a7f\u00a7l: the bank bot is offline on DonutSMP. Try again in a few minutes.");
-            this.refuseCashout(name, 0.0, 0.0, "bot_offline");
+            this.refuseCashout(name, 0.0, 0.0, "bot_offline", ref);
             return;
         }
         double balance = this.eco.getBalance(p);
@@ -412,35 +448,35 @@ implements Listener {
             amount = this.parseAmount(amountArg);
             if (amount < 0.0) {
                 this.tell(p, PREFIX + "\u00a7c\u00a7lInvalid amount.\u00a7f\u00a7l Try \u00a7e\u00a7l300k\u00a7f\u00a7l or \u00a7e\u00a7l1.5m\u00a7f\u00a7l.");
-                this.refuseCashout(name, 0.0, allowed, "invalid_amount");
+                this.refuseCashout(name, 0.0, allowed, "invalid_amount", ref);
                 return;
             }
         }
         if (allowed < 1.0) {
             this.tell(p, PREFIX + "\u00a7c\u00a7lNothing to cash out\u00a7f\u00a7l" + (reserve > 0.0 ? ": your 500K welcome bonus can't leave the casino. Win above it or deposit on DonutSMP first!" : "."));
-            this.refuseCashout(name, amount, allowed, "nothing_allowed");
+            this.refuseCashout(name, amount, allowed, "nothing_allowed", ref);
             return;
         }
         if (amount < 1.0) {
             this.tell(p, PREFIX + "\u00a7c\u00a7lNothing to cash out.");
-            this.refuseCashout(name, amount, allowed, "nothing_asked");
+            this.refuseCashout(name, amount, allowed, "nothing_asked", ref);
             return;
         }
         if (amount > allowed) {
             this.tell(p, PREFIX + "You can cash out at most \u00a7a\u00a7l$" + String.format("%,.0f", allowed) + "\u00a7f\u00a7l" + (reserve > 0.0 ? " (your 500K welcome bonus stays in the casino)." : "."));
-            this.refuseCashout(name, amount, allowed, "over_allowed");
+            this.refuseCashout(name, amount, allowed, "over_allowed", ref);
             return;
         }
         EconomyResponse r = this.eco.withdrawPlayer(p, amount);
         if (!r.transactionSuccess()) {
             this.tell(p, PREFIX + "\u00a7c\u00a7lWithdrawal failed\u00a7f\u00a7l, try again.");
-            this.refuseCashout(name, amount, allowed, "withdraw_failed");
+            this.refuseCashout(name, amount, allowed, "withdraw_failed", ref);
             return;
         }
         if (this.cache.containsKey(p.getUniqueId())) {
             this.cache.merge(p.getUniqueId(), -amount, Double::sum);
         }
-        this.appendOutbox(this.obj("type", "cashout", "player", name, "amount", amount));
+        this.appendOutbox(this.avecRef(this.obj("type", "cashout", "player", name, "amount", amount), ref));
         String key = name.toLowerCase();
         long now = System.currentTimeMillis();
         this.txStatus.put(key, "PENDING");
@@ -519,7 +555,9 @@ implements Listener {
             this.invested.merge(key, amount2, Double::sum);
             this.saveState();
             if (before < 3000000.0 && this.invested.get(key) >= 3000000.0) {
-                Bukkit.dispatchCommand((CommandSender)Bukkit.getConsoleSender(), (String)("lp user " + p.getName() + " parent add investor"));
+                // UUID et non pseudo : LuckPerms refuse les pseudos Bedrock a point (.scyroz124
+                // n'a jamais recu le grade, 2026-09-06)
+                Bukkit.dispatchCommand((CommandSender)Bukkit.getConsoleSender(), (String)("lp user " + p.getUniqueId() + " parent add investor"));
                 p.sendMessage(PREFIX + "You unlocked the " + INVESTOR_TAG + "\u00a7f\u00a7l rank! Your name now shines in the chat.");
                 p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.8f, 1.0f);
                 String rankLine = INVESTOR_TAG + " \u00a7f\u00a7l" + p.getName() + " \u00a77is now an official investor of the OutMind Casino!";
@@ -590,7 +628,7 @@ implements Listener {
         this.writeVerifyCodes();
         long minLeft = Math.max(1L, (this.verifyCodes.get(code).expiresAt() - now) / 60000L);
         p.sendMessage(PREFIX + "Link your Discord! Your code: \u00a7d\u00a7l" + code);
-        p.sendMessage(PREFIX + "Send this code to the OutMind Discord bot. It expires in \u00a7e\u00a7l" + minLeft + " min\u00a7f\u00a7l.");
+        p.sendMessage(PREFIX + "Run \u00a7d\u00a7l/link\u00a7f\u00a7l on our Discord and paste it. It expires in \u00a7e\u00a7l" + minLeft + " min\u00a7f\u00a7l.");
         p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_CHIME, 0.8f, 1.5f);
         this.getLogger().info("Code verify " + code + " pour " + p.getName());
     }
@@ -727,7 +765,11 @@ implements Listener {
     public void onTwofaDialog(io.papermc.paper.event.player.PlayerCustomClickEvent e) {
         String id = e.getIdentifier().asString();
         boolean pw = id.equals("outmind:twofa_pw");
-        if (!pw && !id.equals("outmind:twofa_q")) {
+        boolean q = id.equals("outmind:twofa_q");
+        boolean setupPw = id.equals("outmind:twofa_setup_pw");
+        boolean setupQ = id.equals("outmind:twofa_setup_q");
+        boolean revoke = id.equals("outmind:twofa_revoke");
+        if (!pw && !q && !setupPw && !setupQ && !revoke) {
             return;
         }
         io.papermc.paper.dialog.DialogResponseView view = e.getDialogResponseView();
@@ -740,10 +782,53 @@ implements Listener {
         }
         String s1 = view.getText("secret1");
         if (s1 == null || s1.isBlank()) {
+            if (setupPw || setupQ) { signalConsole("twofasetupfail " + p.getName() + " empty"); }
             return;
         }
         JsonObject o;
-        if (pw) {
+        if (setupPw) {
+            // longueur et confirmation validees ICI : seul le sha256 part dans l'outbox
+            if (s1.length() < 6 || s1.length() > 64) {
+                signalConsole("twofasetupfail " + p.getName() + " password_length");
+                return;
+            }
+            String conf = view.getText("secret2");
+            if (!s1.equals(conf)) {
+                signalConsole("twofasetupfail " + p.getName() + " password_mismatch");
+                return;
+            }
+            Boolean chaque = view.getBoolean("chaque");
+            String scope = Boolean.TRUE.equals(chaque) ? "each" : "window";
+            o = this.obj("type", "twofa_setup", "player", p.getName(), "mode", "password", "h1", OutMindLink.sha256(s1), "scope", scope);
+        } else if (setupQ) {
+            String qa = view.getText("qa");
+            String qb = view.getText("qb");
+            String s2 = view.getText("secret2");
+            if (qa == null || qb == null || qa.isBlank() || qb.isBlank()) {
+                signalConsole("twofasetupfail " + p.getName() + " need_two_answers");
+                return;
+            }
+            if (qa.equals(qb)) {
+                signalConsole("twofasetupfail " + p.getName() + " same_question");
+                return;
+            }
+            String n1 = OutMindLink.normaliserReponse(s1);
+            String n2 = s2 == null ? "" : OutMindLink.normaliserReponse(s2);
+            if (n1.length() < 2 || n2.length() < 2) {
+                signalConsole("twofasetupfail " + p.getName() + " need_two_answers");
+                return;
+            }
+            Boolean chaque = view.getBoolean("chaque");
+            String scope = Boolean.TRUE.equals(chaque) ? "each" : "window";
+            o = this.obj("type", "twofa_setup", "player", p.getName(), "mode", "questions", "qa", qa, "qb", qb, "h1", OutMindLink.sha256(n1), "h2", OutMindLink.sha256(n2), "scope", scope);
+        } else if (revoke) {
+            String s2 = view.getText("secret2");
+            if (s2 == null || s2.isBlank()) {
+                o = this.obj("type", "twofa_revoke", "player", p.getName(), "h1", OutMindLink.sha256(s1));
+            } else {
+                o = this.obj("type", "twofa_revoke", "player", p.getName(), "h1", OutMindLink.sha256(OutMindLink.normaliserReponse(s1)), "h2", OutMindLink.sha256(OutMindLink.normaliserReponse(s2)));
+            }
+        } else if (pw) {
             o = this.obj("type", "twofa", "player", p.getName(), "h1", OutMindLink.sha256(s1));
         } else {
             String s2 = view.getText("secret2");
@@ -753,7 +838,15 @@ implements Listener {
             o = this.obj("type", "twofa", "player", p.getName(), "h1", OutMindLink.sha256(OutMindLink.normaliserReponse(s1)), "h2", OutMindLink.sha256(OutMindLink.normaliserReponse(s2)));
         }
         this.appendOutbox(o);
-        p.sendMessage("\u00a7x\u00a7A\u00a71\u00a78\u00a7C\u00a7D\u00a71\u00a7lOutmind Casino \u00a7f\u00a7lChecking your 2FA...");
+        // actionbar animee \u00ab Checking 2FA... \u00bb (Skript twofa-menu.sk), coupee
+        // par le signal de reponse du bridge
+        signalConsole("twofachecking " + p.getName());
+    }
+
+    // les PlayerCustomClickEvent peuvent arriver hors main thread : les signaux
+    // console (relayes par Skript) repassent par le scheduler
+    private void signalConsole(String cmd) {
+        this.getServer().getScheduler().runTask(this, () -> this.getServer().dispatchCommand(this.getServer().getConsoleSender(), cmd));
     }
 
     // meme normalisation que lib/twofa.js cote VPS (minuscule, accents, espaces)
@@ -862,7 +955,11 @@ implements Listener {
                     return String.format("%,.0f", Math.max(0.0, Math.floor(bal - reserve)));
                 }
                 case "bonus": {
-                    return String.format("%,.0f", OutMindLink.this.bonusGiven.contains(key) ? 500000.0 : 0.0);
+                    // ce qu'il RESTE du bonus dans le vault (un bonus joue et
+                    // perdu ne compte plus) : balance_raw + bonus = vault complet
+                    double reserve = OutMindLink.this.bonusGiven.contains(key) ? 500000.0 : 0.0;
+                    double bal = OutMindLink.this.eco.getBalance(p);
+                    return String.format("%,.0f", Math.max(0.0, Math.min(Math.floor(bal), reserve)));
                 }
                 case "balance_raw": {
                     double bal = OutMindLink.this.eco.getBalance(p);
