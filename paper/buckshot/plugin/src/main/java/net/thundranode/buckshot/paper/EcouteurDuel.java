@@ -234,7 +234,7 @@ public final class EcouteurDuel implements Listener {
     }
 
     /**
-     * Seules /rr et /leave restent ouvertes a un joueur assis (les admins
+     * Seules /buckshot et /leave restent ouvertes a un joueur assis (les admins
      * gardent tout) : /spawn, /warp, /home et consorts sont des sorties de
      * table hors circuit.
      */
@@ -245,7 +245,7 @@ public final class EcouteurDuel implements Listener {
         if (commandeAutorisee(evenement.getMessage())) return;
         evenement.setCancelled(true);
         evenement.getPlayer().sendMessage(net.kyori.adventure.text.Component.text(
-                "Only /rr and /leave are allowed during a game.",
+                "Only /buckshot and /leave are allowed during a game.",
                 net.kyori.adventure.text.format.NamedTextColor.RED));
     }
 

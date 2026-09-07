@@ -26,6 +26,13 @@ final class SessionDuel {
     private boolean annulee;
     /** Vrai des que le pot est paye : plus aucun forfait ne doit repayer. */
     private boolean reglee;
+    /**
+     * Vrai des le premier tir accepte. Avant lui, un forfait (quit, /leave,
+     * mort) rend les deux mises au lieu de payer le pot : sinon deux comptes
+     * d'une meme personne se transferaient de l'argent en quelques secondes
+     * (defi, accept, /leave), hors des quotas de retrait de la banque.
+     */
+    private boolean premierTirFait;
     private Acteur pompe;
 
     SessionDuel(UUID joueur1, UUID joueur2, MoteurPartie moteur) {
@@ -46,6 +53,9 @@ final class SessionDuel {
     boolean rembourserAutorise(boolean demande) {
         return demande && !reglee;
     }
+
+    boolean premierTirFait() { return premierTirFait; }
+    void marquerPremierTir() { premierTirFait = true; }
 
     UUID joueurId(Acteur acteur) {
         return acteur == Acteur.JOUEUR ? joueur1 : joueur2;

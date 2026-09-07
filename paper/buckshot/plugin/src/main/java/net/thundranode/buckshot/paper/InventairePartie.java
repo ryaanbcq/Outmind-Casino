@@ -175,7 +175,7 @@ public final class InventairePartie {
                         "SHOOT YOURSELF", "Turn the barrel on yourself");
                 case OBJET -> creerObjet(entree.objet(), entree.quantite(), session);
                 case ATTENTE -> participant.porteMenottes()
-                        ? creerAttenteMenotte() : creerAttente();
+                        ? creerAttenteMenotte() : creerAttente(nomAdversaire);
             };
             joueur.getInventory().setItem(entree.slot(), item);
         }
@@ -352,10 +352,13 @@ public final class InventairePartie {
         return item;
     }
 
-    private static ItemStack creerAttente() {
+    /** L'horloge d'attente porte le nom de celui qui joue : DrDonutt en solo,
+     *  l'adversaire humain en duel (avant : DRDONUTT'S TURN partout, 2026-09-06). */
+    private static ItemStack creerAttente(String nomAdversaire) {
         ItemStack item = new ItemStack(Material.CLOCK);
         item.editMeta(meta -> {
-            meta.displayName(Component.text("DRDONUTT'S TURN", NamedTextColor.RED));
+            meta.displayName(Component.text(
+                    nomAdversaire.toUpperCase(java.util.Locale.ROOT) + "'S TURN", NamedTextColor.RED));
             meta.lore(java.util.List.of(Component.text(
                     "Shooting and items locked", NamedTextColor.GRAY)));
         });

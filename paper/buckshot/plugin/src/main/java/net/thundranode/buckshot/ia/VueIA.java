@@ -12,6 +12,8 @@ public record VueIA(int round,
                     int ballesBlanchesRestantes,
                     int viesDealer,
                     int viesJoueur,
+                    /** Plafond de vies du round : au-dela, le moteur refuse la cigarette. */
+                    int viesPlafond,
                     List<Objet> objetsDealer,
                     int toursSautesDealer,
                     int toursSautesJoueur,
@@ -27,6 +29,13 @@ public record VueIA(int round,
         if (ballesReellesRestantes < 0 || ballesBlanchesRestantes < 0) {
             throw new IllegalArgumentException("composition negative");
         }
+        if (viesPlafond < viesDealer) {
+            throw new IllegalArgumentException("plafond de vies sous les vies du dealer");
+        }
+    }
+
+    public int cartouchesRestantes() {
+        return ballesReellesRestantes + ballesBlanchesRestantes;
     }
 
     public double probabiliteReelle() {

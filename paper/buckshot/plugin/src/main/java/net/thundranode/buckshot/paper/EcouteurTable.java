@@ -19,7 +19,7 @@ public final class EcouteurTable implements Listener {
         if (scene.dealer().est(evenement.getNPC())) {
             evenement.setCancelled(true);
             if (controleur.estEnPartie(evenement.getClicker().getUniqueId())) return;
-            // Meme garde que /rr jouer : sans la permission, pas de partie.
+            // Meme garde que /buckshot jouer : sans la permission, pas de partie.
             if (!evenement.getClicker().hasPermission("buckshot.play")) {
                 evenement.getClicker().sendMessage(net.kyori.adventure.text.Component.text(
                         "You do not have permission.",

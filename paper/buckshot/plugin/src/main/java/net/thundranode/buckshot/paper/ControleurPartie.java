@@ -48,7 +48,7 @@ public final class ControleurPartie {
     private final EcranNoir ecranNoir;
     private final ScenePartie scene;
     private final BarreVie barreVie;
-    private final StrategieDrDonutt strategie = new StrategieDrDonutt();
+    private final StrategieDrDonutt strategie;
     /** SecureRandom : l'ordre du chargeur est de l'argent, un Random nu se predit. */
     private final java.security.SecureRandom aleatoire = new java.security.SecureRandom();
     private final int reflexionMin;
@@ -104,7 +104,7 @@ public final class ControleurPartie {
     private SessionPartie session;
     /** Round en cours, pour choisir le pool de repliques au moment d'un tir. */
     private int roundCourant;
-    /** Suite d'evenements gelee entre deux rounds, relancee par /rr continuer. */
+    /** Suite d'evenements gelee entre deux rounds, relancee par /buckshot continuer. */
     private Runnable reprisePendante;
     /** Rounds remportes par le joueur : la base du gain affiche a la relance. */
     private int roundsGagnes;
@@ -154,6 +154,18 @@ public final class ControleurPartie {
      * PlayerStopSpectatingEntityEvent tant que ce champ le designe.
      */
     private UUID cinematiqueSpectateur;
+    /**
+     * Compte a rebours d'inactivite (2026-09-07). Le tour du joueur et la
+     * question de relance attendaient sans limite, et arreter() rembourse la
+     * mise d'une partie non reglee : un joueur en train de perdre n'avait
+     * qu'a ne plus cliquer et attendre le restart pour reprendre sa mise.
+     * Tour : forfait (mise perdue) ; relance : encaissement du gain acquis.
+     * Toute action acceptee du joueur le re-arme, le tour du dealer, le
+     * rechargement et la fin de session l'annulent.
+     */
+    private BukkitTask tacheInactivite;
+    /** Avertissement 30 s avant l'echeance, annule avec elle. */
+    private BukkitTask avertissementInactivite;
 
     public ControleurPartie(JavaPlugin plugin, Regles regles, Animateur animateur,
                              InventairePartie inventaire, EcranNoir ecranNoir,
@@ -163,6 +175,7 @@ public final class ControleurPartie {
                              int loupeTenueTicks) {
         this.plugin = plugin;
         this.regles = regles;
+        this.strategie = new StrategieDrDonutt(regles, temperamentConfig());
         this.barreVie = new BarreVie(regles.viesPlafond());
         this.animateur = animateur;
         this.inventaire = inventaire;
@@ -184,6 +197,14 @@ public final class ControleurPartie {
      */
     public void surveillerApproche() {
         tacheApproche = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            // Session orpheline (joueur parti sans que son evenement de
+            // depart l'ait annulee, ex. mise au chat traitee apres la
+            // deconnexion) : la table ne reste jamais verrouillee sur un
+            // absent. Pas de remboursement, il n'y a personne a payer.
+            if (session != null) {
+                Player assis = Bukkit.getPlayer(session.joueurId());
+                if (assis == null || !assis.isOnline()) annuler(session.joueurId(), null, false);
+            }
             // Table reservee par le duel : ni auto-start ni reparation (la
             // reconstruction ressusciterait DrDonutt au milieu du duel).
             if (tableReserveeAilleurs()) return;
@@ -273,6 +294,13 @@ public final class ControleurPartie {
      */
     public void placerMise(Player joueur, long montant) {
         Bukkit.getScheduler().runTask(plugin, () -> {
+            // Mise tapee puis deconnexion dans le meme tick : sans ce test,
+            // le Vault etait debite et une session s'ouvrait sans personne
+            // pour la jouer (table verrouillee jusqu'au restart).
+            if (!joueur.isOnline()) {
+                attenteMise.remove(joueur.getUniqueId());
+                return;
+            }
             if (!attenteMise.contains(joueur.getUniqueId()) || session != null) return;
             if (montant < miseMin() || montant > miseMax()) {
                 joueur.sendMessage(Component.text("Bet must be between $"
@@ -301,7 +329,7 @@ public final class ControleurPartie {
     }
 
     private boolean demarrerAvecMise(Player joueur, long mise) {
-        if (session != null || tableReserveeAilleurs()
+        if (!joueur.isOnline() || session != null || tableReserveeAilleurs()
                 || !scene.configuree() || !scene.aPortee(joueur)) return false;
         // Re-verifie ici et pas seulement a l'invitation : entre la mise
         // tapee au chat et son traitement, le joueur a pu s'asseoir ailleurs.
@@ -363,6 +391,7 @@ public final class ControleurPartie {
             erreur(joueur, action.erreur());
             return false;
         }
+        annulerInactivite();
         courante.verrouiller(true);
         courante.demanderPompe(Acteur.JOUEUR);
         String visee = cible == Cible.SOI ? "aim_self" : "aim_front";
@@ -378,6 +407,9 @@ public final class ControleurPartie {
             erreur(joueur, action.erreur());
             return false;
         }
+        // Action acceptee : le compte a rebours repartira a la resynchro du
+        // tour (synchroniserPhase), pas pendant l'animation de l'objet.
+        annulerInactivite();
         // La loupe a deja son animation et son verrou : lui ajouter la pompe
         // ferait deux secondes d'attente pour une simple lecture de chambre.
         if (objet != Objet.LOUPE) courante.demanderPompe(Acteur.JOUEUR);
@@ -535,8 +567,8 @@ public final class ControleurPartie {
     /**
      * Gele la partie entre deux rounds : DrDonutt lance sa question de
      * relance, puis le chat affiche deux boutons cliquables. La suite des
-     * evenements ne part qu'au clic sur CONTINUE (/rr continuer) ; GIVE UP
-     * passe par /rr abandonner, qui nettoie aussi cette attente.
+     * evenements ne part qu'au clic sur CONTINUE (/buckshot continuer) ; GIVE UP
+     * passe par /buckshot abandonner, qui nettoie aussi cette attente.
      */
     private void demanderContinuer(SessionPartie courante,
                                    java.util.List<EvenementPartie> suite) {
@@ -574,6 +606,14 @@ public final class ControleurPartie {
         if (roundCourant >= 2) scene.arreterMusique(joueur);
         jouerVoix(courante, "nextround", 15L, true);
         reprisePendante = () -> traiterEvenements(courante, suite);
+        // Question sans reponse : au bout du delai on part avec la caisse,
+        // le gain du round est acquis et le joueur n'y perd rien. Empeche
+        // aussi de parquer une table gagnante jusqu'au restart.
+        armerInactivite(courante, inactiviteRelanceSecondes(),
+                "Continue or cash out: auto cash out in 30 s.", () -> {
+                    Player humain = joueur(courante);
+                    if (humain != null) abandonner(humain);
+                });
         programmer(courante, 30L, () -> {
             if (reprisePendante == null) return;
             Player humain = joueur(courante);
@@ -717,6 +757,7 @@ public final class ControleurPartie {
         Runnable suite = reprisePendante;
         if (suite == null) return;
         reprisePendante = null;
+        annulerInactivite();
         scene.masquerChoixRelance();
         suite.run();
     }
@@ -934,7 +975,7 @@ public final class ControleurPartie {
     }
 
     /** Charge que `acteur` vient de decouvrir, ou null si l'action ne l'a pas revelee. */
-    private static TypeCartouche chambreVue(ResultatAction action, Acteur acteur) {
+    static TypeCartouche chambreVue(ResultatAction action, Acteur acteur) {
         for (EvenementPartie evenement : action.evenements()) {
             if (evenement instanceof EvenementPartie.ChambrePrivee e && e.acteur() == acteur) {
                 return e.type();
@@ -989,13 +1030,38 @@ public final class ControleurPartie {
         else scene.cacherPose(joueur);
     }
 
+    /**
+     * Curseur de hasard de DrDonutt, lu dans {@code game.dealer-*} : c'est le
+     * reglage de generosite de la maison sur ce jeu (voir StrategieDrDonutt).
+     */
+    private StrategieDrDonutt.Temperament temperamentConfig() {
+        var c = plugin.getConfig();
+        StrategieDrDonutt.Temperament defaut = StrategieDrDonutt.Temperament.defaut();
+        try {
+            return new StrategieDrDonutt.Temperament(
+                    c.getDouble("game.dealer-temperature-min", defaut.temperatureMin()),
+                    c.getDouble("game.dealer-temperature-max", defaut.temperatureMax()),
+                    c.getDouble("game.dealer-exploration", defaut.exploration()),
+                    c.getDouble("game.dealer-exploration-marge", defaut.marge()),
+                    c.getDouble("game.dealer-humeur", defaut.humeur()));
+        } catch (IllegalArgumentException e) {
+            plugin.getLogger().warning("[Buckshot] game.dealer-* invalide (" + e.getMessage() + "), valeurs par defaut");
+            return defaut;
+        }
+    }
+
     private void jouerDealer(SessionPartie courante) {
         if (!active(courante) || courante.moteur().phase() != PhasePartie.TOUR_DEALER) return;
         ActionIA choix = strategie.choisir(courante.moteur().vueIA(), aleatoire);
         if (choix instanceof ActionIA.UtiliserObjet objet) {
             ResultatAction resultat = courante.moteur().utiliser(Acteur.DEALER, objet.objet());
             if (!resultat.acceptee()) {
-                traiter(courante, resultat);
+                // Un refus laissait le tour du dealer sans action (partie
+                // figee) : on tire le coup de repli, toujours legal, au lieu
+                // d'afficher l'erreur au joueur.
+                plugin.getLogger().warning("[Buckshot] objet du dealer refuse (" + objet.objet()
+                        + " : " + resultat.erreur() + "), tir de repli");
+                jouerTirDealer(courante, strategie.tirDeRepli(courante.moteur().vueIA()));
                 return;
             }
             // L'objet passe dans sa main avant que son effet tombe : sans ce
@@ -1023,7 +1089,7 @@ public final class ControleurPartie {
                 }
                 // La loupe se regarde d'abord, puis il verifie la chambre.
                 // Comme les deux visees, la pose passe par l'ItemDisplay
-                // reglable a chaud (/rr pose inspect) et non par la troisieme
+                // reglable a chaud (/buckshot pose inspect) et non par la troisieme
                 // personne du pack, que personne n'a jamais reussi a caler
                 // sans y passer la nuit. La cartouche affichee est la neutre :
                 // ce que le dealer apprend ne se lit pas depuis l'autre bout
@@ -1043,6 +1109,12 @@ public final class ControleurPartie {
                 });
             });
         } else if (choix instanceof ActionIA.Tirer tir) {
+            jouerTirDealer(courante, tir);
+        }
+    }
+
+    private void jouerTirDealer(SessionPartie courante, ActionIA.Tirer tir) {
+        {
             Player dealer = scene.dealerEntite().orElse(null);
             ResultatAction resultat = courante.moteur().tirer(Acteur.DEALER, tir.cible());
             if (!resultat.acceptee()) {
@@ -1058,7 +1130,7 @@ public final class ControleurPartie {
             String visee = tir.cible() == Cible.SOI ? "aim_self" : "aim_front";
             ChronologieTir chronologie = chronologie(resultat, visee);
             // Le fusil vise est un ItemDisplay pilote serveur, regle en
-            // direct par /rr pose : la pose en main de PNJ via le pack a
+            // direct par /buckshot pose : la pose en main de PNJ via le pack a
             // coute une nuit de calibrage sans converger.
             scene.viserDealer(tir.cible() == Cible.SOI ? "self" : "front");
             // Viser l'adversaire, c'est le regarder : la main ne s'incline pas
@@ -1107,6 +1179,9 @@ public final class ControleurPartie {
             EvenementPartie evenement = evenements.get(rang);
             if (evenement instanceof EvenementPartie.RoundCommence e) {
                 joueurToucheAuRound3 = false;
+                // Nouvelle humeur cachee de DrDonutt : ce que le joueur a
+                // appris de lui au round d'avant ne vaut plus tout a fait.
+                strategie.nouvelleManche(aleatoire);
                 scene.peauDealerPourRound(e.round());
             scene.musiquePourRound(e.round());
             scene.sangPourRound(e.round());
@@ -1366,6 +1441,7 @@ public final class ControleurPartie {
             case RECHARGEMENT -> lancerRechargement(courante);
             case TOUR_JOUEUR -> {
                 courante.verrouiller(false);
+                armerInactiviteTour(courante);
                 fusilEnMainDealer = false;
                 scene.montrerFusil(Acteur.JOUEUR, joueur);
                 if (fusilEnMain) {
@@ -1390,6 +1466,7 @@ public final class ControleurPartie {
             }
             case TOUR_DEALER -> {
                 courante.verrouiller(true);
+                annulerInactivite();
                 annulerPriseFusil();
                 inventaire.preparerHotbar(joueur, courante.id(),
                         courante.moteur().participant(Acteur.JOUEUR), false);
@@ -1415,6 +1492,7 @@ public final class ControleurPartie {
         Player joueur = joueur(courante);
         if (joueur == null) return;
         courante.verrouiller(true);
+        annulerInactivite();
         annulerPriseFusil();
         fusilEnMainDealer = false;
         inventaire.preparerAnimationFusil(joueur);
@@ -1466,6 +1544,7 @@ public final class ControleurPartie {
         // quelle que soit la raison de l'annulation.
         rembourser = courante.rembourserAutorise(rembourser);
         courante.annuler();
+        annulerInactivite();
         if (suiviVisee != null) { suiviVisee.cancel(); suiviVisee = null; }
         poseForcee = false;
         reprisePendante = null;
@@ -1524,7 +1603,77 @@ public final class ControleurPartie {
             tacheApproche.cancel();
             tacheApproche = null;
         }
-        if (session != null) annuler(session.joueurId(), "Game stopped by the server.", true);
+        if (session == null) return;
+        // Arret technique pendant la question de relance : le round est
+        // GAGNE, le gain acquis est paye (comme un cashout) au lieu de rendre
+        // la mise. Un restart ne defait jamais un round remporte, et ne
+        // transforme plus un gain en simple remboursement.
+        Player joueur = joueur(session);
+        long gain = reprisePendante != null ? gains() : 0;
+        if (gain > 0 && joueur != null && !session.reglee()) {
+            session.regler();
+            payer(joueur, gain);
+            annuler(session.joueurId(), "Game stopped by the server, you walk away with $"
+                    + net.thundranode.buckshot.Mises.formater(gain) + ".", false);
+            return;
+        }
+        annuler(session.joueurId(), "Game stopped by the server.", true);
+    }
+
+    private int inactiviteTourSecondes() {
+        return plugin.getConfig().getInt("game.inactivite-tour-secondes", 90);
+    }
+
+    private int inactiviteRelanceSecondes() {
+        return plugin.getConfig().getInt("game.inactivite-relance-secondes", 120);
+    }
+
+    /** Tour du joueur sans action : forfait, la mise est perdue comme sur un /leave en plein round. */
+    private void armerInactiviteTour(SessionPartie courante) {
+        armerInactivite(courante, inactiviteTourSecondes(), "Play or you forfeit in 30 s.",
+                () -> annuler(courante.joueurId(), "Forfeited for inactivity.", false));
+    }
+
+    /**
+     * (Re)arme le compte a rebours d'inactivite de la session : l'avertissement
+     * tombe 30 s avant l'echeance, l'echeance execute {@code echeance} si la
+     * session est encore la meme. 0 ou moins desactive le delai.
+     */
+    private void armerInactivite(SessionPartie courante, int secondes, String avertissement,
+                                 Runnable echeance) {
+        annulerInactivite();
+        if (secondes <= 0) return;
+        if (secondes > 30) {
+            avertissementInactivite = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!active(courante)) return;
+                Player humain = joueur(courante);
+                if (humain != null) {
+                    humain.sendMessage(Component.text(avertissement, NamedTextColor.RED));
+                }
+            }, (secondes - 30) * 20L);
+        }
+        tacheInactivite = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!active(courante)) return;
+            try {
+                echeance.run();
+            } catch (RuntimeException erreur) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "session " + courante.id() + " (inactivite) : " + erreur.getMessage(), erreur);
+                // Meme regle que programmer() : jamais de remboursement ici.
+                annuler(courante.joueurId(), "The game was cancelled after an error.", false);
+            }
+        }, secondes * 20L);
+    }
+
+    private void annulerInactivite() {
+        if (avertissementInactivite != null) {
+            avertissementInactivite.cancel();
+            avertissementInactivite = null;
+        }
+        if (tacheInactivite != null) {
+            tacheInactivite.cancel();
+            tacheInactivite = null;
+        }
     }
 
     /** Vrai des qu'une partie tourne, quel que soit le joueur assis a la table. */
@@ -1534,6 +1683,11 @@ public final class ControleurPartie {
 
     public boolean estEnPartie(UUID joueurId) {
         return session != null && session.joueurId().equals(joueurId);
+    }
+
+    /** Le participant de ce joueur dans la partie solo en cours, ou null (placeholders TAB). */
+    public net.thundranode.buckshot.jeu.Participant participantDe(UUID joueurId) {
+        return estEnPartie(joueurId) ? session.moteur().participant(Acteur.JOUEUR) : null;
     }
 
     public boolean estVerrouille(UUID joueurId) {
@@ -1560,6 +1714,8 @@ public final class ControleurPartie {
         if (courante == null || courante.verrouille() || !attentePriseFusil) return;
         attentePriseFusil = false;
         fusilEnMain = true;
+        // Ramasser le fusil est une action : le compte a rebours repart.
+        armerInactiviteTour(courante);
         scene.retirerFusilAPrendre();
         inventaire.preparerHotbar(joueur, courante.id(),
                 courante.moteur().participant(Acteur.JOUEUR), true);

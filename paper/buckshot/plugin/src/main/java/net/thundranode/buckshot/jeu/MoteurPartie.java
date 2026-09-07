@@ -25,6 +25,13 @@ public final class MoteurPartie {
     private int round;
     private int numeroChargeur;
     private Acteur tour = Acteur.JOUEUR;
+    /**
+     * Qui ouvre le PREMIER round. JOUEUR par defaut (solo : l'humain tire
+     * toujours le premier) ; le duel le tire a pile ou face, sinon le
+     * provocateur, toujours premier a tirer, gardait un avantage mesure.
+     * Les rounds suivants repartent du JOUEUR comme avant.
+     */
+    private Acteur premierActeur = Acteur.JOUEUR;
     private Chargeur chargeur;
     private TirEnAttente tirEnAttente;
 
@@ -61,6 +68,19 @@ public final class MoteurPartie {
         List<EvenementPartie> evenements = new ArrayList<>();
         commencerRound(evenements);
         return ResultatAction.ok(evenements);
+    }
+
+    /**
+     * Variante a ouvreur choisi : {@code premier} tire le premier coup du
+     * round 1 (duel PvP, pile ou face). Les rounds suivants gardent l'ordre
+     * historique, le solo n'appelle jamais cette forme.
+     */
+    public ResultatAction demarrer(Acteur premier) {
+        if (phase != PhasePartie.LIBRE) {
+            return ResultatAction.refuse("the game has already started");
+        }
+        premierActeur = Objects.requireNonNull(premier, "premier");
+        return demarrer();
     }
 
     public ResultatAction terminerRechargement() {
@@ -213,7 +233,9 @@ public final class MoteurPartie {
     private void commencerRound(List<EvenementPartie> evenements) {
         participants.values().forEach(p -> p.reinitialiserRound(regles.viesPourRound(round)));
         tirEnAttente = null;
-        tour = Acteur.JOUEUR;
+        // Seul le premier round obeit a l'ouvreur choisi (duel) ; ensuite le
+        // JOUEUR ouvre, comme toujours en solo.
+        tour = round == 1 ? premierActeur : Acteur.JOUEUR;
         evenements.add(new EvenementPartie.RoundCommence(round));
         recharger(evenements);
     }
@@ -331,6 +353,7 @@ public final class MoteurPartie {
                 publique.blanches(),
                 dealer.vies(),
                 joueur.vies(),
+                regles.viesPlafond(),
                 dealer.objets(),
                 dealer.toursASauter(),
                 joueur.toursASauter(),

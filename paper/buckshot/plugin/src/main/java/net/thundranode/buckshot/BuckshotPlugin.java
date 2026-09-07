@@ -15,7 +15,7 @@ import java.util.List;
 
 public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
 
-    /** Portee par defaut de /rr table retirer, un peu plus large que la table. */
+    /** Portee par defaut de /buckshot table retirer, un peu plus large que la table. */
     private static final double RAYON_RETRAIT = 12.0;
     private static final double RAYON_RETRAIT_MAX = 128.0;
 
@@ -25,10 +25,37 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
     /** Regles du duel PvP : un seul round, 6 coeurs chacun (config duel.*). */
     private Regles reglesDuel;
     private Banque banque;
+    /** Mises de duel du jour par joueur (plafond duel.plafond-journalier), une pour toutes les tables. */
+    private JournalDuels journalDuels;
     /** Multi-tables (2026-08-29) : chaque table a sa scene, son dealer, sa
      * partie et ses ecouteurs - les parties tournent en parallele. */
     private final List<TableJeu> tables = new ArrayList<>();
     private org.bukkit.scheduler.BukkitTask balayageRepere;
+
+    /**
+     * Ligne de coeurs d'un joueur ASSIS a une table (solo ou duel), en codes
+     * legacy : rouges, noirs de cigarette, conteneurs vides jusqu'au plafond.
+     * Null s'il ne joue pas. Sert au placeholder %buckshot_belowname% : TAB
+     * l'accroche sous le pseudo a la place du moneytag pendant la partie
+     * (demande Ryan 2026-09-06, remplace l'hologramme de coeurs des joueurs).
+     */
+    public String ligneVies(java.util.UUID joueurId) {
+        for (TableJeu table : tables) {
+            net.thundranode.buckshot.jeu.Participant p = table.controleur().participantDe(joueurId);
+            if (p == null) p = table.duel().participantDe(joueurId);
+            if (p != null) return ligneVies(p.vies(), p.viesClope(), p.viesPlafond());
+        }
+        return null;
+    }
+
+    public static String ligneVies(int vies, int viesClope, int plafond) {
+        int noirs = Math.max(0, Math.min(viesClope, vies));
+        int rouges = Math.max(0, vies - noirs);
+        StringBuilder texte = new StringBuilder("\u00a7c").append("\u2764".repeat(rouges));
+        if (noirs > 0) texte.append("\u00a70").append("\u2764".repeat(noirs));
+        if (vies < plafond) texte.append("\u00a78").append("\u2764".repeat(plafond - Math.max(0, vies)));
+        return texte.toString();
+    }
 
     private record TableJeu(MiseEnScene scene, ControleurPartie controleur,
                             ControleurDuel duel, EcouteurPartie ecouteurPartie,
@@ -55,6 +82,9 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
         } else {
             getLogger().warning("Pas d'economie Vault : la table joue gratuitement.");
         }
+        journalDuels = new JournalDuels(new java.io.File(getDataFolder(), "duels-journal.yml"),
+                getLogger());
+        journalDuels.charger();
         for (TableConfig config : TableConfig.chargerToutes(this)) {
             ajouterTable(config);
         }
@@ -63,7 +93,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
         sauverTables();
         getLogger().info(tables.size() + " table(s) Buckshot chargee(s).");
 
-        var cmd = getCommand("rr");
+        var cmd = getCommand("buckshot");
         if (cmd == null) throw new IllegalStateException("commande rr absente de plugin.yml");
         cmd.setExecutor(this);
         cmd.setTabCompleter(this);
@@ -127,6 +157,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             return autre != null && autre.duel() != duel;
         });
         duel.verrouSolo(controleur::partieEnCours);
+        duel.journalDuels(journalDuels);
         EcouteurPartie ecouteurPartie = new EcouteurPartie(controleur);
         EcouteurDuel ecouteurDuel = new EcouteurDuel(duel);
         EcouteurTable ecouteurTable = new EcouteurTable(scene, controleur);
@@ -200,7 +231,20 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                 proche = table;
             }
         }
-        return proche;
+        if (proche != null) return proche;
+        // Aucune table duel dans CE monde (defi lance depuis le menu du PNJ au
+        // spawn) : repli sur un autre monde - l'installation teleporte les deux
+        // joueurs de toute facon. On prefere une table sans defi ni duel en
+        // cours, sinon la premiere venue.
+        TableJeu libre = null;
+        TableJeu quelconque = null;
+        for (TableJeu table : tables) {
+            if (table.scene().config() == null || !table.scene().config().estDuel()) continue;
+            if (table.scene().centreConfigure() == null) continue;
+            if (quelconque == null) quelconque = table;
+            if (libre == null && table.duel().nomDefi() == null && !table.duel().enCours()) libre = table;
+        }
+        return libre != null ? libre : quelconque;
     }
 
     /** Table de duel de ce joueur : son duel/defi d'abord, sinon la table
@@ -220,7 +264,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
     }
 
     /**
-     * Repli d'un `/rr duel accepter` tape a la main loin de toute table : s'il
+     * Repli d'un `/buckshot duel accepter` tape a la main loin de toute table : s'il
      * n'y a qu'UN defi en attente sur le serveur, c'est forcement lui.
      * Plusieurs defis = ambigu, on renvoie vers les boutons JOIN du chat.
      */
@@ -231,14 +275,14 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             if (trouvee != null) {
                 joueur.sendMessage(Component.text(
                         "Several duels are waiting: click a JOIN button in chat, "
-                                + "or /rr duel accepter <player>.", NamedTextColor.RED));
+                                + "or /buckshot duel accepter <player>.", NamedTextColor.RED));
                 return null;
             }
             trouvee = table;
         }
         if (trouvee == null) {
             joueur.sendMessage(Component.text(
-                    "No duel to accept. /rr duel <amount> to start one.", NamedTextColor.RED));
+                    "No duel to accept. /buckshot duel <amount> to start one.", NamedTextColor.RED));
         }
         return trouvee;
     }
@@ -362,7 +406,9 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                 getConfig().getInt("duel.chargeur.reals-min", 1),
                 getConfig().getInt("duel.chargeur.reals-max", 7));
         int objets = getConfig().getInt("duel.objets-par-chargeur", 3);
-        int maximum = getConfig().getInt("game.max-items", 8);
+        // plafond d'objets propre au duel (2026-09-06 : « trop d'items » en
+        // multijoueur), repli sur celui du solo
+        int maximum = getConfig().getInt("duel.max-items", getConfig().getInt("game.max-items", 8));
         int blackout = getConfig().getInt("game.blackout-ticks", 40);
         return new Regles(List.of(vies, vies, vies), vies,
                 List.of(plage, plage, plage), List.of(objets, objets, objets),
@@ -415,7 +461,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             if (tableCourante.scene().config() != null
                     && tableCourante.scene().config().estDuel()) {
                 joueur.sendMessage(Component.text(
-                        "This is a Duel table: /rr duel <amount> to challenge someone.",
+                        "This is a Duel table: /buckshot duel <amount> to challenge someone.",
                         NamedTextColor.RED));
                 return true;
             }
@@ -431,7 +477,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             controleur.reprendre(joueur);
             return true;
         }
-        // Duel PvP : /rr duel <montant> pose un defi, accepter/annuler le
+        // Duel PvP : /buckshot duel <montant> pose un defi, accepter/annuler le
         // resolvent. La table de travail est celle du duel du joueur, sinon
         // la plus proche - comme les autres commandes.
         if (sousCommande.equals("duel")) {
@@ -441,8 +487,8 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             TableJeu tableDuel = tableDuelDe(joueur);
             if (args.length < 2) {
                 joueur.sendMessage(Component.text(
-                        "/rr duel <amount> to challenge, /rr duel accepter to accept, "
-                                + "/rr duel annuler to take your challenge back.",
+                        "/buckshot duel <amount> to challenge, /buckshot duel accepter to accept, "
+                                + "/buckshot duel annuler to take your challenge back.",
                         NamedTextColor.GRAY));
                 return true;
             }
@@ -461,7 +507,20 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                                 NamedTextColor.RED));
                         return true;
                     }
-                    visee.duel().accepter(joueur, args[2]);
+                    // Mise portee par le bouton JOIN (dollars) : accepter la
+                    // compare a celle du defi, un defi annule puis reposte
+                    // plus gros n'est pas paye a l'aveugle. Sans montant, la
+                    // forme courte reste acceptee (un seul defi par nom).
+                    long miseAttendue = -1;
+                    if (args.length >= 4) {
+                        miseAttendue = net.thundranode.buckshot.Mises.parser(args[3]);
+                        if (miseAttendue <= 0) {
+                            joueur.sendMessage(Component.text("Unreadable amount: " + args[3]
+                                    + " (e.g. 500K, 2M).", NamedTextColor.RED));
+                            return true;
+                        }
+                    }
+                    visee.duel().accepter(joueur, args[2], miseAttendue);
                     return true;
                 }
                 TableJeu visee = null;
@@ -474,7 +533,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             }
             if (tableDuel == null) {
                 joueur.sendMessage(Component.text(
-                        "No Duel table in this world. /rr table creer duel to add one.",
+                        "No Duel table in this world. /buckshot table creer duel to add one.",
                         NamedTextColor.RED));
                 return true;
             }
@@ -488,7 +547,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                         + " (e.g. 500K, 2M).", NamedTextColor.RED));
                 return true;
             }
-            tableDuel.duel().proposer(joueur, montant);
+            tableDuel.duel().proposer(joueur, montant, args.length >= 3 ? args[2] : null);
             return true;
         }
         if (sousCommande.equals("abandonner")) {
@@ -507,15 +566,15 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                 || sousCommande.equals("stop") || sousCommande.equals("table");
         if (scene == null && !sansTable) {
             joueur.sendMessage(Component.text(
-                    "No Buckshot table in this world. /rr table creer to add one.", NamedTextColor.RED));
+                    "No Buckshot table in this world. /buckshot table creer to add one.", NamedTextColor.RED));
             return true;
         }
 
         switch (sousCommande) {
             // Reglage en direct du fusil vise du dealer. Sans argument :
-            // /rr pose front|self montre la pose et rappelle les axes.
-            // /rr pose front avant 0.1 pousse d'un dixieme de bloc, etc.
-            // /rr pose stop cache le fusil de reglage.
+            // /buckshot pose front|self montre la pose et rappelle les axes.
+            // /buckshot pose front avant 0.1 pousse d'un dixieme de bloc, etc.
+            // /buckshot pose stop cache le fusil de reglage.
             case "pose" -> {
                 if (args.length < 2) return false;
                 String quoi = args[1].toLowerCase();
@@ -696,11 +755,11 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
             // axe plutot qu'a le deduire, deux deductions opposees ayant chacune
             // explique les memes observations.
             // Cigarette statique posee sur SOI, visible par soi, qui suit la
-            // config en direct : /rr garro puis /rr pose cigarette haut -0.02
+            // config en direct : /buckshot garro puis /buckshot pose cigarette haut -0.02
             // la fait bouger sous tes yeux, sans rejouer la sequence.
-            // /rr garro stop la retire.
-            // Banc d'essai du tableau de mort : /rr mortdonut l'installe
-            // (corps sur la table, sang, mallette), /rr mortdonut stop remet
+            // /buckshot garro stop la retire.
+            // Banc d'essai du tableau de mort : /buckshot mortdonut l'installe
+            // (corps sur la table, sang, mallette), /buckshot mortdonut stop remet
             // le dealer debout et retire le tout. Sert a calibrer la pose
             // sans gagner une partie.
             case "mortdonut" -> {
@@ -711,13 +770,13 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                             NamedTextColor.GRAY));
                 } else if (scene.dealerMort()) {
                     joueur.sendMessage(Component.text(
-                            "Already dead. /rr mortdonut stop to reset.",
+                            "Already dead. /buckshot mortdonut stop to reset.",
                             NamedTextColor.RED));
                 } else {
                     scene.mortDealer();
                     scene.poserMalletteVictoire();
                     joueur.sendMessage(Component.text(
-                            "Death tableau set. /rr mortdonut stop to reset.",
+                            "Death tableau set. /buckshot mortdonut stop to reset.",
                             NamedTextColor.GRAY));
                 }
                 return true;
@@ -741,14 +800,14 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                     scene.essayerPoseSurSoi(joueur, "cigarette-soi");
                     joueur.sendMessage(Component.text(
                             "Cigarette placed on you (F5 to see it). Tune with "
-                                    + "/rr pose cigarette-soi <axis> <delta>; /rr garro stop to remove.",
+                                    + "/buckshot pose cigarette-soi <axis> <delta>; /buckshot garro stop to remove.",
                             NamedTextColor.GRAY));
                 }
                 return true;
             }
-            // Banc d'essai de la fumette : /rr fume la joue sur soi (a
-            // regarder en F5), /rr fume dealer sur le PNJ. Sert a voir la
-            // sequence complete et a calibrer /rr pose cigarette sans
+            // Banc d'essai de la fumette : /buckshot fume la joue sur soi (a
+            // regarder en F5), /buckshot fume dealer sur le PNJ. Sert a voir la
+            // sequence complete et a calibrer /buckshot pose cigarette sans
             // derouler une partie.
             case "fume" -> {
                 if (args.length >= 2 && args[1].equalsIgnoreCase("dealer")) {
@@ -761,7 +820,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                 } else {
                     scene.fumerCigarette(joueur, false, () -> { });
                     joueur.sendMessage(Component.text(
-                            "Switch to F5 to watch yourself smoke; /rr pose cigarette to tune.",
+                            "Switch to F5 to watch yourself smoke; /buckshot pose cigarette to tune.",
                             NamedTextColor.GRAY));
                 }
                 return true;
@@ -852,11 +911,11 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                     if (existante != null && existante.scene().configureeIci(joueur.getLocation(), RAYON_RETRAIT)) {
                         joueur.sendMessage(Component.text(
                                 "A table already exists right here (" + existante.scene().description()
-                                        + "). Move away or /rr table retirer first.",
+                                        + "). Move away or /buckshot table retirer first.",
                                 NamedTextColor.RED));
                         return true;
                     }
-                    // /rr table creer [duel] : sans argument, table solo
+                    // /buckshot table creer [duel] : sans argument, table solo
                     // historique ; "duel" cree une table PvP sans DrDonutt.
                     String typeTable = args.length >= 3
                             && args[2].equalsIgnoreCase("duel") ? "duel" : "solo";
@@ -958,7 +1017,7 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                     return true;
                 }
                 if (joueur.getInventory().getItemInMainHand().isEmpty()) {
-                    joueur.sendMessage(Component.text("Nothing in hand. /rr donner first.", NamedTextColor.RED));
+                    joueur.sendMessage(Component.text("Nothing in hand. /buckshot donner first.", NamedTextColor.RED));
                     return true;
                 }
                 boolean pousse = animateur.jouer(joueur, nom);
@@ -966,8 +1025,8 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                         ? nom + ": " + etats.get(nom).dureeTicks() + " ticks"
                         : nom + " applied. Hold right click.", NamedTextColor.GRAY));
             }
-            // Panneau de mixage en direct : /rr sons affiche musique et voix
-            // avec des [-]/[+] cliquables, /rr sons musique|voix <0..2> regle.
+            // Panneau de mixage en direct : /buckshot sons affiche musique et voix
+            // avec des [-]/[+] cliquables, /buckshot sons musique|voix <0..2> regle.
             // La musique repart aussitot au nouveau volume ; les voix le
             // prennent des la replique suivante. Au-dela de 1.0, Minecraft
             // n'amplifie pas, il elargit seulement la portee du son.
@@ -1019,11 +1078,11 @@ public final class BuckshotPlugin extends JavaPlugin implements TabExecutor {
                 .append(Component.text(String.format(racine, "%.2f  ", valeur), NamedTextColor.WHITE))
                 .append(Component.text("[-]", NamedTextColor.RED)
                         .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand(
-                                String.format(racine, "/rr sons %s %.2f", cle, moins))))
+                                String.format(racine, "/buckshot sons %s %.2f", cle, moins))))
                 .append(Component.text(" "))
                 .append(Component.text("[+]", NamedTextColor.GREEN)
                         .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand(
-                                String.format(racine, "/rr sons %s %.2f", cle, plus))))
+                                String.format(racine, "/buckshot sons %s %.2f", cle, plus))))
                 .build();
     }
 

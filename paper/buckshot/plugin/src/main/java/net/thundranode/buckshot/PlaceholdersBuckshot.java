@@ -15,6 +15,9 @@ import org.jetbrains.annotations.NotNull;
  *   %buckshot_libres%                     nombre de tables sans partie en cours
  *   %buckshot_free_<monde>_<x>_<z>%       yes / no  (pour les view_requirements)
  *   %buckshot_status_<monde>_<x>_<z>%     FREE / BUSY
+ *   %buckshot_vies%                       coeurs du joueur s'il est assis a une table, sinon vide
+ *   %buckshot_belowname%                  ligne sous le pseudo (TAB belowname, 2026-09-06) :
+ *                                         ses coeurs en partie, sinon le moneytag habituel
  */
 public final class PlaceholdersBuckshot extends PlaceholderExpansion {
 
@@ -31,6 +34,17 @@ public final class PlaceholdersBuckshot extends PlaceholderExpansion {
 
     @Override
     public String onRequest(OfflinePlayer joueur, @NotNull String params) {
+        if (params.equalsIgnoreCase("vies")) {
+            String vies = joueur == null ? null : plugin.ligneVies(joueur.getUniqueId());
+            return vies == null ? "" : vies;
+        }
+        if (params.equalsIgnoreCase("belowname")) {
+            String vies = joueur == null ? null : plugin.ligneVies(joueur.getUniqueId());
+            if (vies != null) return vies;
+            // hors partie : le moneytag (meme rendu que l'ancien fancy-value de TAB)
+            return me.clip.placeholderapi.PlaceholderAPI.setPlaceholders(joueur,
+                    "\u00a7x\u00a7F\u00a7B\u00a7C\u00a72\u00a7E\u00a7B\u26c3 \u00a7x\u00a7F\u00a72\u00a7F\u00a74\u00a7F\u00a77%outmind_balance_short%");
+        }
         if (params.equalsIgnoreCase("tables")) return String.valueOf(plugin.nombreTables());
         if (params.equalsIgnoreCase("libres")) return String.valueOf(plugin.tablesLibres());
 

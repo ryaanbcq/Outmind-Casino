@@ -6,9 +6,10 @@ description: Full Buckshot Roulette against DrDonutt.
 depend: [Citizens]
 softdepend: [Multiverse-Core, Vault, PlaceholderAPI]
 commands:
-  rr:
+  buckshot:
     description: Play Buckshot Roulette and manage the table.
-    usage: "/rr <jouer|abandonner|table <creer|retirer|afficher>|donner|anim <etat>|stop>"
+    usage: "/buckshot <jouer|duel|abandonner|table <creer|retirer|afficher>|donner|anim <etat>|stop>"
+    aliases: [rr]
   leave:
     description: Leave the current Buckshot Roulette game.
     usage: "/leave"

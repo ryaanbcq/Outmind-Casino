@@ -82,6 +82,17 @@ public final class Animateur {
      * l'envers -- meme resultat visuel, aucun rebuild de pack.
      */
     public void jouerInspection(Player joueur, int tenueTicks, String nom) {
+        jouerInspection(joueur, tenueTicks, nom, false);
+    }
+
+    /**
+     * Variante duel ({@code masquerAutres}) : l'inspecteur voit la vraie
+     * couleur, mais chaque image envoyee aux AUTRES clients est remplacee par
+     * un paquet d'equipement NEUTRE (sequence {@code inspect}) : le
+     * custom_model_data de l'item tenu est visible du client d'en face, la
+     * couleur de la charge y trahirait la lecture de la loupe.
+     */
+    public void jouerInspection(Player joueur, int tenueTicks, String nom, boolean masquerAutres) {
         Etats.Etat etat = etats.get(nom);
         if (etat == null) throw new IllegalArgumentException("etat inconnu : " + nom);
         SequenceAnimation sequence = SequenceAnimation.creer(nom, etat);
@@ -93,6 +104,24 @@ public final class Animateur {
         String sommet = images.get(montee - 1);
         for (int i = 0; i < Math.max(0, tenueTicks); i++) images.add(sommet);
         for (int i = montee - 1; i >= 0; i--) images.add(images.get(i));
+
+        // sequence neutre alignee tick a tick sur la vraie, pour le masque
+        final java.util.List<String> neutres;
+        if (masquerAutres && !nom.equals("inspect")) {
+            Etats.Etat etatNeutre = etats.get("inspect");
+            SequenceAnimation seqNeutre = SequenceAnimation.creer("inspect", etatNeutre);
+            java.util.List<String> n = new java.util.ArrayList<>();
+            for (String image : seqNeutre.images()) {
+                for (int i = 0; i < seqNeutre.ticksParImage(); i++) n.add(image);
+            }
+            int monteeN = n.size();
+            String sommetN = n.get(monteeN - 1);
+            for (int i = 0; i < Math.max(0, tenueTicks); i++) n.add(sommetN);
+            for (int i = monteeN - 1; i >= 0; i--) n.add(n.get(i));
+            neutres = n;
+        } else {
+            neutres = null;
+        }
 
         annuler(joueur);
         final int debutTenue = montee;
@@ -109,6 +138,9 @@ public final class Animateur {
                     return;
                 }
                 poserEnMain(joueur, images.get(tick));
+                if (neutres != null) {
+                    masquerPourAutres(joueur, neutres.get(Math.min(tick, neutres.size() - 1)));
+                }
                 if (tick == debutTenue) {
                     joueur.getWorld().playSound(joueur.getLocation(),
                             Sound.ITEM_SPYGLASS_USE, SoundCategory.PLAYERS, 0.7f, 1.3f);
@@ -197,6 +229,22 @@ public final class Animateur {
         BukkitRunnable t = enCours.remove(joueur.getUniqueId());
         if (t != null) {
             t.cancel();
+        }
+    }
+
+    /**
+     * Renvoie aux clients proches (sauf l'inspecteur) un paquet d'equipement
+     * portant l'image neutre : cote serveur l'item reel garde la couleur, mais
+     * elle n'existe que sur l'ecran du lecteur. Repete a chaque image car
+     * chaque setItemInMainHand rediffuse l'equipement reel a tous.
+     */
+    private void masquerPourAutres(Player joueur, String etatNeutre) {
+        ItemStack masque = joueur.getInventory().getItemInMainHand().clone();
+        Fusil.poser(masque, etatNeutre);
+        for (Player autre : joueur.getWorld().getPlayers()) {
+            if (autre.getUniqueId().equals(joueur.getUniqueId())) continue;
+            if (autre.getLocation().distanceSquared(joueur.getLocation()) > 64 * 64) continue;
+            autre.sendEquipmentChange(joueur, org.bukkit.inventory.EquipmentSlot.HAND, masque);
         }
     }
 

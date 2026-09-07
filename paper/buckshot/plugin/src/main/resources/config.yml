@@ -26,6 +26,20 @@ game:
     menottes: 12
     couteau: 14
   blackout-ticks: 40
+  # Curseur de hasard de DrDonutt (2026-09-07). Chaque action vaut sa vraie
+  # probabilite de gagner le round ; le dealer tire ensuite son coup au sort,
+  # les coups proches du meilleur se partageant la mise (loi de Boltzmann,
+  # temperature tiree a chaque manche entre min et max, en points de
+  # probabilite). 0.03 = quasi optimal, 0.10 = franchement joueur. C'est le
+  # reglage de generosite de la maison sur ce jeu : le caler par simulation
+  # (scratchpad bucksim2) avec les multiplicateurs de gains.
+  dealer-temperature-min: 0.06
+  dealer-temperature-max: 0.10
+  # Part des tours joues au hasard parmi les coups a moins de « marge » du
+  # meilleur, et amplitude des biais caches (agressivite, curiosite).
+  dealer-exploration: 0.06
+  dealer-exploration-marge: 0.12
+  dealer-humeur: 0.03
   dealer-think-min-ticks: 20
   dealer-think-max-ticks: 35
   # Temps pendant lequel DrDonutt garde l'arme en joue avant de tirer,
@@ -38,6 +52,13 @@ game:
   # a la loupe. La sequence brute ne dure que huit ticks : sans
   # tenue, l'animation passe trop vite pour se voir.
   loupe-hold-ticks: 18
+  # Inactivite du joueur (secondes, 0 = sans limite). Pendant son tour :
+  # avertissement 30 s avant, puis forfait (mise perdue, comme un /leave en
+  # plein round). A la question de relance : encaissement automatique du
+  # gain acquis. Sans ces delais, un joueur en train de perdre parquait la
+  # table jusqu'au restart, qui remboursait sa mise.
+  inactivite-tour-secondes: 90
+  inactivite-relance-secondes: 120
 
 staging:
   music-start-radius: 80.0
@@ -127,13 +148,20 @@ pose:
 gains:
   mise-min: 100000
   mise-max: 10000000
-  multiplicateurs: [1.5, 2.5, 5.0]
+  # Cales le 2026-09-07 sur le MEILLEUR joueur possible (oracle qui connait
+  # la loi du dealer et planifie ses objets par rollouts) : retour 0.93 / 0.94
+  # / 0.91 par mise selon le round encaisse ; un bon joueur humain ~0.85 au
+  # round 1, un joueur moyen ~0.7. Avant : 1.7 / 3 / 5 avec un dealer
+  # deterministe = retour 1.06 / 1.48 / 2.13 pour qui connaissait le pattern.
+  multiplicateurs: [1.7, 2.4, 3.0]
 
 # Duel PvP : /rr duel <montant> pose un defi, /rr duel accepter le releve.
 # Un seul round, chaque joueur mise le meme montant, le gagnant prend le pot.
 # mise-min/max retombent sur gains.mise-min/max si absents.
 # Chargeur totalement aleatoire : 2 a 8 cartouches, reelles libres (le
 # generateur garde toujours au moins une reelle et une blanche).
+# Objets : objets-par-chargeur (defaut 3) et max-items (defaut = game.max-items).
+# Prod 2026-09-06 : 2 par chargeur, plafond 4 (« trop d'items » en multi).
 duel:
   vies: 6
   chargeur:
@@ -144,6 +172,12 @@ duel:
   objets-par-chargeur: 3
   # Duree de validite d'un defi, en ticks (1200 = 60 s).
   defi-ticks: 1200
+  # Plafond journalier (dollars, 0 = desactive) des mises de duel par joueur,
+  # duels DEMARRES du jour (heure de Paris), provocateur comme accepteur ;
+  # journal dans duels-journal.yml. Un duel transfere le pot en quelques
+  # secondes entre deux comptes : cette borne le remet sous les quotas de
+  # retrait de la banque. Un forfait avant le premier tir rend les mises.
+  plafond-journalier: 100000000
 
 # Volumes, reglables en direct par /rr sons. Au-dela de 1.0, Minecraft
 # n'amplifie pas : il elargit seulement la portee du son.

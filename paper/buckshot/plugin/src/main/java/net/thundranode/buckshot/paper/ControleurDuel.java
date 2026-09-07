@@ -39,7 +39,7 @@ public final class ControleurDuel {
                     net.kyori.adventure.sound.Sound.Source.PLAYER, 1f, 1f);
 
     /** Defi pose sur la table, en attente d'un adversaire. */
-    private record Defi(UUID challenger, String nom, long mise, BukkitTask expiration) { }
+    private record Defi(UUID challenger, String nom, long mise, BukkitTask expiration, String cible) { }
 
     private final JavaPlugin plugin;
     private final Regles regles;
@@ -68,6 +68,16 @@ public final class ControleurDuel {
     private java.util.function.Predicate<UUID> occupeAilleurs;
     /** Vrai si une partie SOLO tourne a cette meme table. */
     private java.util.function.BooleanSupplier soloEnCours;
+    /** Mises de duel du jour par joueur (plafond journalier), partage entre les tables. */
+    private JournalDuels journalDuels;
+    /**
+     * Instant du dernier /buckshot duel annuler par joueur, TOUTES tables
+     * confondues (statique : un joueur pourrait annuler ici et reposter a la
+     * table voisine). Freine le annuler / reposter plus gros qui, avec les
+     * anciens boutons JOIN, faisait payer une mise non choisie.
+     */
+    private static final java.util.Map<UUID, Long> retraitsRecents = new java.util.HashMap<>();
+    private static final long COOLDOWN_RETRAIT_MS = 10_000L;
 
     public ControleurDuel(JavaPlugin plugin, Regles regles, Animateur animateur,
                           InventairePartie inventaire, EcranNoir ecranNoir,
@@ -89,6 +99,32 @@ public final class ControleurDuel {
 
     public void verrouSolo(java.util.function.BooleanSupplier verrou) {
         this.soloEnCours = verrou;
+    }
+
+    public void journalDuels(JournalDuels journal) {
+        this.journalDuels = journal;
+    }
+
+    /** Plafond journalier de mises de duel par joueur, en dollars (0 = desactive). */
+    private long plafondJournalier() {
+        return plugin.getConfig().getLong("duel.plafond-journalier", 100_000_000L);
+    }
+
+    /**
+     * Vrai si engager {@code mise} de plus aujourd'hui depasserait le plafond
+     * journalier du joueur ; le previent. Compte les duels DEMARRES du jour,
+     * provocateur comme accepteur : un duel se paye en secondes (mise, accept,
+     * /leave), c'est un canal de transfert entre comptes hors des quotas de
+     * retrait de la banque, d'ou la borne.
+     */
+    private boolean plafondAtteint(Player joueur, long mise) {
+        long plafond = plafondJournalier();
+        if (plafond <= 0 || journalDuels == null || mise <= 0) return false;
+        if (journalDuels.miseDuJour(joueur.getUniqueId()) + mise <= plafond) return false;
+        joueur.sendMessage(Component.text("Daily duel limit reached ($"
+                + net.thundranode.buckshot.Mises.formater(plafond) + "). Try again tomorrow.",
+                NamedTextColor.RED));
+        return true;
     }
 
     /** Boucle d'entretien d'une table DUEL : le solo n'y tourne pas, donc sa
@@ -130,7 +166,17 @@ public final class ControleurDuel {
     }
 
     public boolean estVerrouille(UUID joueurId) {
-        return estEnPartie(joueurId) && session.verrouille();
+        if (!estEnPartie(joueurId)) return false;
+        // Verrou de session (rechargement, tir en cours) OU tour de l'autre :
+        // le joueur passif ne fait pas defiler sa hotbar, comme en solo
+        // pendant le tour du dealer (plainte joueurs 2026-09-06).
+        return session.verrouille() || session.moteur().tour() != session.acteurDe(joueurId);
+    }
+
+    /** Le participant de ce joueur dans le duel en cours, ou null (placeholders TAB). */
+    public net.thundranode.buckshot.jeu.Participant participantDe(UUID joueurId) {
+        if (!estEnPartie(joueurId)) return null;
+        return session.moteur().participant(session.acteurDe(joueurId));
     }
 
     public InventairePartie inventaire() {
@@ -149,10 +195,22 @@ public final class ControleurDuel {
                 plugin.getConfig().getLong("gains.mise-max", 10_000_000L));
     }
 
-    /** /rr duel <montant> : pose un defi sur la table, mise debitee d'avance. */
+    /** /buckshot duel <montant> : pose un defi sur la table, mise debitee d'avance. */
     public void proposer(Player joueur, long montant) {
+        proposer(joueur, montant, null);
+    }
+
+    /** Variante ciblee : seul `cibleNom` pourra accepter, previent en prive. */
+    public void proposer(Player joueur, long montant, String cibleNom) {
         if (joueur.isDead()) {
             joueur.sendMessage(Component.text("You cannot duel while dead.", NamedTextColor.RED));
+            return;
+        }
+        Long dernierRetrait = retraitsRecents.get(joueur.getUniqueId());
+        if (dernierRetrait != null
+                && System.currentTimeMillis() - dernierRetrait < COOLDOWN_RETRAIT_MS) {
+            joueur.sendMessage(Component.text("Wait 10 s before posting a new duel.",
+                    NamedTextColor.RED));
             return;
         }
         if (occupeAilleurs != null && occupeAilleurs.test(joueur.getUniqueId())) {
@@ -166,8 +224,8 @@ public final class ControleurDuel {
         }
         if (defi != null) {
             joueur.sendMessage(Component.text(defi.challenger().equals(joueur.getUniqueId())
-                    ? "Your challenge is already up. /rr duel annuler to take it back."
-                    : defi.nom() + " already has a challenge up: /rr duel accepter to face them.",
+                    ? "Your challenge is already up. /buckshot duel annuler to take it back."
+                    : defi.nom() + " already has a challenge up: /buckshot duel accepter to face them.",
                     NamedTextColor.RED));
             return;
         }
@@ -180,9 +238,21 @@ public final class ControleurDuel {
             joueur.sendMessage(Component.text("The Buckshot table is not set up.", NamedTextColor.RED));
             return;
         }
-        if (!scene.aPortee(joueur)) {
-            joueur.sendMessage(Component.text("Step closer to the table.", NamedTextColor.RED));
-            return;
+        // Pas de condition de distance pour POSER un defi : le menu du PNJ au
+        // spawn route vers une table d'un autre monde, et l'installation
+        // teleporte les deux joueurs au demarrage de toute facon (2026-09-04).
+        Player cible = null;
+        if (cibleNom != null && !cibleNom.isBlank()) {
+            cible = Bukkit.getPlayerExact(cibleNom);
+            if (cible == null) cible = Bukkit.getPlayer(cibleNom);
+            if (cible == null || !cible.isOnline()) {
+                joueur.sendMessage(Component.text(cibleNom + " is not online.", NamedTextColor.RED));
+                return;
+            }
+            if (cible.getUniqueId().equals(joueur.getUniqueId())) {
+                joueur.sendMessage(Component.text("You cannot duel yourself.", NamedTextColor.RED));
+                return;
+            }
         }
         long mise = montant;
         if (banque.disponible()) {
@@ -199,6 +269,7 @@ public final class ControleurDuel {
                         + net.thundranode.buckshot.Mises.formater(solde) + ".", NamedTextColor.RED));
                 return;
             }
+            if (plafondAtteint(joueur, mise)) return;
             if (!banque.debiter(joueur, mise)) {
                 joueur.sendMessage(Component.text("Payment failed, try again.", NamedTextColor.RED));
                 return;
@@ -219,11 +290,14 @@ public final class ControleurDuel {
                         "Nobody picked up the duel. Your bet is back.", NamedTextColor.GRAY));
             }
         }, expirationTicks);
-        defi = new Defi(challengerId, joueur.getName(), mise, expiration);
+        defi = new Defi(challengerId, joueur.getName(), mise, expiration, cible != null ? cible.getName() : null);
         // Matchmaking a l'echelle du serveur : tout le monde voit la mise et
         // le premier qui clique JOIN paie la meme et la partie demarre. Le
         // bouton porte le nom du provocateur pour viser la bonne table,
-        // meme depuis un autre monde.
+        // meme depuis un autre monde, ET la mise en dollars : un defi annule
+        // puis reposte plus gros ne se fait pas accepter par un vieux bouton
+        // (accepter refuse une mise qui ne colle plus).
+        String commandeJoin = "/buckshot duel accepter " + joueur.getName() + " " + mise;
         var annonce = Component.text()
                 .append(Component.text(joueur.getName() + " bet $"
                         + net.thundranode.buckshot.Mises.formater(mise)
@@ -231,7 +305,7 @@ public final class ControleurDuel {
                 .append(Component.text("[JOIN]", NamedTextColor.GREEN,
                                 net.kyori.adventure.text.format.TextDecoration.BOLD)
                         .clickEvent(net.kyori.adventure.text.event.ClickEvent
-                                .runCommand("/rr duel accepter " + joueur.getName()))
+                                .runCommand(commandeJoin))
                         .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
                                 Component.text("Pay $"
                                         + net.thundranode.buckshot.Mises.formater(mise)
@@ -239,8 +313,31 @@ public final class ControleurDuel {
                                         NamedTextColor.YELLOW))))
                 // Bedrock ne clique pas les composants du chat : la commande
                 // reste lisible en clair pour eux.
-                .append(Component.text(" (/rr duel accepter)", NamedTextColor.DARK_GRAY))
+                .append(Component.text(" (" + commandeJoin + ")", NamedTextColor.DARK_GRAY))
                 .build();
+        if (cible != null) {
+            // defi PRIVE : seul le vise est prevenu, et lui seul peut accepter
+            var annoncePrivee = Component.text()
+                    .append(Component.text(joueur.getName() + " challenges YOU: $"
+                            + net.thundranode.buckshot.Mises.formater(mise)
+                            + " on Donut's Buckshot ", NamedTextColor.GOLD))
+                    .append(Component.text("[JOIN]", NamedTextColor.GREEN,
+                                    net.kyori.adventure.text.format.TextDecoration.BOLD)
+                            .clickEvent(net.kyori.adventure.text.event.ClickEvent
+                                    .runCommand(commandeJoin))
+                            .hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
+                                    Component.text("Pay $"
+                                            + net.thundranode.buckshot.Mises.formater(mise)
+                                            + " and face " + joueur.getName() + " in a 1v1",
+                                            NamedTextColor.YELLOW))))
+                    .append(Component.text(" (" + commandeJoin + ")", NamedTextColor.DARK_GRAY))
+                    .build();
+            cible.sendMessage(annoncePrivee);
+            joueur.sendMessage(Component.text("Private challenge sent to " + cible.getName()
+                    + ": $" + net.thundranode.buckshot.Mises.formater(mise)
+                    + " (60 s).", NamedTextColor.GOLD));
+            return;
+        }
         joueur.sendMessage(Component.text("Challenge placed: $"
                 + net.thundranode.buckshot.Mises.formater(mise)
                 + ". Waiting for an opponent (60 s).", NamedTextColor.GOLD));
@@ -249,13 +346,14 @@ public final class ControleurDuel {
         }
     }
 
-    /** /rr duel annuler : le provocateur reprend sa mise. */
+    /** /buckshot duel annuler : le provocateur reprend sa mise. */
     public void annulerDefi(Player joueur) {
         if (defi == null || !defi.challenger().equals(joueur.getUniqueId())) {
             joueur.sendMessage(Component.text("You have no pending challenge here.",
                     NamedTextColor.RED));
             return;
         }
+        retraitsRecents.put(joueur.getUniqueId(), System.currentTimeMillis());
         retirerDefi(joueur, "Challenge cancelled, your bet is back.");
     }
 
@@ -283,9 +381,13 @@ public final class ControleurDuel {
         }
     }
 
-    /** /rr duel accepter : debite l'accepteur et lance le duel. */
+    /** /buckshot duel accepter : debite l'accepteur et lance le duel. */
     public void accepter(Player joueur) {
         accepter(joueur, null);
+    }
+
+    public void accepter(Player joueur, String nomChallenger) {
+        accepter(joueur, nomChallenger, -1);
     }
 
     /**
@@ -293,10 +395,14 @@ public final class ControleurDuel {
      * a la main. S'il est donne, il doit designer LE defi en attente ici :
      * un defi remplace entre le clic et son traitement ne se fait pas
      * accepter par erreur (et payer) a la place de l'autre.
+     * {@code miseAttendue} : mise portee par le bouton JOIN (dollars), ou
+     * negative si absente. Donnee, elle doit etre CELLE du defi : le
+     * provocateur qui annule et reposte plus gros ne fait plus payer la
+     * nouvelle mise a qui clique un vieux bouton.
      */
-    public void accepter(Player joueur, String nomChallenger) {
+    public void accepter(Player joueur, String nomChallenger, long miseAttendue) {
         if (defi == null) {
-            joueur.sendMessage(Component.text("No duel to accept here. /rr duel <amount> to start one.",
+            joueur.sendMessage(Component.text("No duel to accept here. /buckshot duel <amount> to start one.",
                     NamedTextColor.RED));
             return;
         }
@@ -304,8 +410,19 @@ public final class ControleurDuel {
             joueur.sendMessage(Component.text("That challenge is gone.", NamedTextColor.RED));
             return;
         }
+        if (miseAttendue >= 0 && miseAttendue != defi.mise()) {
+            joueur.sendMessage(Component.text("This challenge changed (now $"
+                    + net.thundranode.buckshot.Mises.formater(defi.mise())
+                    + "). Click the new JOIN.", NamedTextColor.RED));
+            return;
+        }
         if (joueur.isDead()) {
             joueur.sendMessage(Component.text("You cannot duel while dead.", NamedTextColor.RED));
+            return;
+        }
+        if (defi.cible() != null && !defi.cible().equalsIgnoreCase(joueur.getName())) {
+            joueur.sendMessage(Component.text("This challenge is reserved for " + defi.cible() + ".",
+                    NamedTextColor.RED));
             return;
         }
         if (defi.challenger().equals(joueur.getUniqueId())) {
@@ -346,6 +463,7 @@ public final class ControleurDuel {
                         + net.thundranode.buckshot.Mises.formater(solde) + ").", NamedTextColor.RED));
                 return;
             }
+            if (plafondAtteint(joueur, mise)) return;
             if (!banque.debiter(joueur, mise)) {
                 joueur.sendMessage(Component.text("Payment failed, try again.", NamedTextColor.RED));
                 return;
@@ -354,6 +472,11 @@ public final class ControleurDuel {
         Defi accepte = defi;
         defi = null;
         accepte.expiration().cancel();
+        // La mise engagee est toujours dite en clair a l'accepteur, meme sur
+        // la forme sans montant (/buckshot duel accepter [nom]).
+        joueur.sendMessage(Component.text("Challenge accepted: $"
+                + net.thundranode.buckshot.Mises.formater(mise) + " against "
+                + challenger.getName() + ".", NamedTextColor.GOLD));
         if (!demarrerDuel(challenger, joueur, mise)) {
             rembourserMise(challenger, mise);
             rembourserMise(joueur, mise);
@@ -389,15 +512,28 @@ public final class ControleurDuel {
         cartouchesVisibles = 0;
         capaciteVisible = 0;
         posesForcees.clear();
+        // Plafond journalier : le duel DEMARRE, les deux mises comptent.
+        if (journalDuels != null) {
+            journalDuels.enregistrer(j1.getUniqueId(), mise);
+            journalDuels.enregistrer(j2.getUniqueId(), mise);
+        }
         long pot = mise * 2;
         var annonce = Component.text(j1.getName() + " vs " + j2.getName()
                 + (pot > 0 ? " - $" + net.thundranode.buckshot.Mises.formater(pot) + " pot."
                 : " - free duel."), NamedTextColor.GOLD);
         pourJoueurs(j -> j.sendMessage(annonce));
         annoncerTemoins(annonce);
+        // Pile ou face pour le premier coup : le provocateur (role JOUEUR)
+        // tirait toujours le premier, un avantage mesure de 1 a 2 points.
+        Acteur premier = aleatoire.nextBoolean() ? Acteur.JOUEUR : Acteur.DEALER;
+        var annonceOuvreur = Component.text("Coin toss: "
+                + (premier == Acteur.JOUEUR ? j1 : j2).getName() + " shoots first.",
+                NamedTextColor.YELLOW);
+        pourJoueurs(j -> j.sendMessage(annonceOuvreur));
+        annoncerTemoins(annonceOuvreur);
         suiviVisee = Bukkit.getScheduler().runTaskTimer(plugin,
                 () -> rafraichirVisee(nouvelle), 1L, 1L);
-        traiter(nouvelle, moteur.demarrer());
+        traiter(nouvelle, moteur.demarrer(premier));
         return true;
     }
 
@@ -410,6 +546,9 @@ public final class ControleurDuel {
             erreur(joueur, action.erreur());
             return false;
         }
+        // Des ce premier coup accepte, un forfait paye le pot ; avant, il
+        // ne fait que rendre les mises (voir forfait).
+        courante.marquerPremierTir();
         courante.verrouiller(true);
         courante.demanderPompe(acteur);
         String visee = cible == Cible.SOI ? "aim_self" : "aim_front";
@@ -430,12 +569,13 @@ public final class ControleurDuel {
         if (objet == Objet.LOUPE) {
             courante.verrouiller(true);
             joueur.getInventory().setItemInMainHand(Fusil.creer());
-            // Cartouche NEUTRE dans le port : le custom_model_data de l'item
-            // tenu est visible du client d'en face, la couleur de la charge
-            // trahirait la lecture. Le resultat ne passe que par le message
-            // prive de ChambrePrivee.
-            String vue = Animateur.inspection(null);
-            programmer(courante, 1L, () -> animateur.jouerInspection(joueur, loupeTenueTicks, vue));
+            // Vraie couleur pour le LECTEUR seulement : l'item reel porte la
+            // charge (rouge/blanche), mais chaque image envoyee aux autres
+            // clients est masquee par un paquet d'equipement neutre
+            // (jouerInspection masquerAutres). L'adversaire ne peut donc
+            // toujours rien lire, et le lecteur retrouve sa cartouche.
+            String vue = Animateur.inspection(ControleurPartie.chambreVue(action, acteur));
+            programmer(courante, 1L, () -> animateur.jouerInspection(joueur, loupeTenueTicks, vue, true));
             posesForcees.add(joueur.getUniqueId());
             scene.montrerPose(joueur, "inspect");
             programmer(courante, 2L, () -> scene.brasInspection(joueur, true));
@@ -710,6 +850,7 @@ public final class ControleurDuel {
         if (perdant != null) scene.reposerFusil(perdant);
         scene.synchroniserMenottes(false, false, gagnant != null ? gagnant : perdant);
         String nomGagnant = gagnant != null ? gagnant.getName() : "?";
+        journaliserResultat(perdantId, gagnantId, miseCourante);
         var annonce = Component.text(nomGagnant + " wins the duel"
                 + (pot > 0 ? " and takes $" + net.thundranode.buckshot.Mises.formater(pot)
                 : "") + ".", NamedTextColor.GOLD);
@@ -748,7 +889,10 @@ public final class ControleurDuel {
 
     /**
      * Fin par forfait (abandon, deconnexion, mort hors jeu) : l'adversaire
-     * encore la prend le pot entier, sans cinematique.
+     * encore la prend le pot entier, sans cinematique. AVANT le premier tir,
+     * personne n'a encore joue : les deux mises sont rendues, sinon deux
+     * comptes d'une meme personne se passaient le pot en quelques secondes
+     * (defi, accept, /leave), hors des quotas de retrait de la banque.
      */
     public void forfait(UUID quitteurId, String raison) {
         SessionDuel courante = session;
@@ -756,7 +900,27 @@ public final class ControleurDuel {
         Acteur partant = courante.acteurDe(quitteurId);
         UUID gagnantId = courante.joueurId(partant.oppose());
         long pot = miseCourante * 2;
+        if (!courante.premierTirFait()) {
+            // annulerDuel(rembourser) rend SA mise a chaque joueur encore
+            // joignable (le quitteur l'est encore pendant son evenement de
+            // depart) : jamais le pot, la session n'est pas reglee.
+            annulerDuel(null, true);
+            Player restant = Bukkit.getPlayer(gagnantId);
+            if (restant != null && restant.isOnline()) {
+                restant.sendMessage(Component.text(
+                        "Your opponent left before the first shot: no winner, bets refunded.",
+                        NamedTextColor.GOLD));
+            }
+            if (raison != null) {
+                var annonce = Component.text(raison, NamedTextColor.GRAY);
+                for (Player temoin : scene.spectateurs(rayonTemoins())) {
+                    temoin.sendMessage(annonce);
+                }
+            }
+            return;
+        }
         annulerDuel(null, false);
+        journaliserResultat(quitteurId, gagnantId, pot / 2);
         Player gagnant = Bukkit.getPlayer(gagnantId);
         if (gagnant != null && gagnant.isOnline()) {
             if (pot > 0 && banque.disponible() && !banque.crediter(gagnant, pot)) {
@@ -783,6 +947,25 @@ public final class ControleurDuel {
         if (joueur != null && joueur.isOnline()) {
             joueur.teleport(joueur.getWorld().getSpawnLocation());
         }
+    }
+
+    /**
+     * Une ligne INFO par duel tranche, au format fixe que le pont banque
+     * pourra compter : {@code [Buckshot] duelresult loser=X winner=Y stake=N}
+     * (mise par joueur, pas le pot). Forfait avant le premier tir = pas de
+     * resultat, l'argent n'a pas bouge.
+     */
+    private void journaliserResultat(UUID perdantId, UUID gagnantId, long mise) {
+        plugin.getLogger().info("[Buckshot] duelresult loser=" + nomJoueur(perdantId)
+                + " winner=" + nomJoueur(gagnantId) + " stake=" + mise);
+    }
+
+    /** Pseudo d'un joueur, en ligne ou non ; l'UUID en dernier recours. */
+    private static String nomJoueur(UUID joueurId) {
+        Player enLigne = Bukkit.getPlayer(joueurId);
+        if (enLigne != null) return enLigne.getName();
+        String nom = Bukkit.getOfflinePlayer(joueurId).getName();
+        return nom != null ? nom : joueurId.toString();
     }
 
     private void tuerPourDeVrai(UUID joueurId) {

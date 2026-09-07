@@ -109,7 +109,7 @@ public final class MiseEnScene implements ScenePartie {
     private BukkitTask tacheVise;
     private String poseVise;
     private int brasVise = -1;
-    /** Poses d'essai visibles posees sur soi par /rr garro, et leur tache. */
+    /** Poses d'essai visibles posees sur soi par /buckshot garro, et leur tache. */
     private final Map<UUID, ItemDisplay> essais = new HashMap<>();
     private final Map<UUID, BukkitTask> tachesEssai = new HashMap<>();
     /** Menottes portees par les participants menottes, et leur suivi. */
@@ -131,7 +131,16 @@ public final class MiseEnScene implements ScenePartie {
     private BukkitTask tacheMusique;
     private long secondes;
 
+    /**
+     * Toutes les scenes vivantes : sert a n'inscrire un auditeur qu'aupres de
+     * la table la plus PROCHE. Les salles sont voisines, un joueur dans le
+     * rayon de deux tables recevait DEUX musiques decalees (constat user
+     * 2026-09-03). Les scenes vivent jusqu'au restart (pas de teardown).
+     */
+    private static final java.util.List<MiseEnScene> SCENES = new java.util.concurrent.CopyOnWriteArrayList<>();
+
     public MiseEnScene(JavaPlugin plugin, double rayonDepart, double rayonArret, TableConfig config) {
+        SCENES.add(this);
         this.plugin = plugin;
         this.geste = new Geste(plugin);
         this.rayonDepart = rayonDepart;
@@ -172,7 +181,7 @@ public final class MiseEnScene implements ScenePartie {
      *
      * Le balayage part des entites marquees, pas de la config : c'est le seul
      * moyen de rattraper une table orpheline, laissee derriere par un
-     * /rr table creer dont la config a ensuite designe un autre endroit.
+     * /buckshot table creer dont la config a ensuite designe un autre endroit.
      */
     /**
      * Balaye les entites de table orphelines dans un rayon, en EPARGNANT
@@ -687,7 +696,7 @@ public final class MiseEnScene implements ScenePartie {
             // Multi-tables : ne balayer que SES entites. Les entites sans id
             // (posees avant la mise a jour) sont rattrapees si elles sont
             // proches du centre - au-dela, elles appartiennent a une autre
-            // table ou a un orphelin que /rr table retirer ramassera.
+            // table ou a un orphelin que /buckshot table retirer ramassera.
             boolean aMoi = id.equals(idEntite)
                     || (idEntite == null && entite.getLocation().distanceSquared(centre) <= 12 * 12);
             if (aMoi) entite.remove();
@@ -791,6 +800,10 @@ public final class MiseEnScene implements ScenePartie {
      */
     @Override
     public void montrerViesJoueur(Player joueur, int vies, int viesClope, int plafond) {
+        // 2026-09-06 : plus d'hologramme, les coeurs des joueurs sont accroches
+        // sous leur pseudo par TAB (belowname %buckshot_belowname%). Un
+        // hologramme d'une version precedente est retire s'il traine.
+        if (true) { masquerViesJoueur(); return; }
         if (config == null) return;
         int noirs = Math.max(0, Math.min(viesClope, vies));
         int rouges = Math.max(0, vies - noirs);
@@ -838,6 +851,7 @@ public final class MiseEnScene implements ScenePartie {
     /** Les coeurs du second joueur, meme ligne que ceux du premier mais a la
      *  place du dealer. Cachee au porteur : elle ne parle qu'aux autres. */
     public void montrerViesJoueur2(Player joueur, int vies, int viesClope, int plafond) {
+        if (true) { masquerViesJoueur2(); return; } // idem : coeurs sous le pseudo via TAB
         if (config == null) return;
         int noirs = Math.max(0, Math.min(viesClope, vies));
         int rouges = Math.max(0, vies - noirs);
@@ -919,7 +933,7 @@ public final class MiseEnScene implements ScenePartie {
     }
 
     /**
-     * Apercu de l'animation de mort sans partie (/rr mort) : le corps
+     * Apercu de l'animation de mort sans partie (/buckshot mort) : le corps
      * apparait la ou se tient l'invocateur, s'effondre et saigne aux memes
      * ticks que la cinematique reelle, puis disparait au meme filet de 30 s.
      * Contrairement a la vraie mort, le corps lui reste VISIBLE : ici c'est
@@ -995,7 +1009,7 @@ public final class MiseEnScene implements ScenePartie {
      * main de PNJ via le pack exige un cycle rebuild-upload-redemarrage par
      * essai, et le repere d'affichage de la main a trahi chaque prediction.
      * Ici la transformation est relue de la config a chaque rafraichissement,
-     * donc {@code /rr pose} regle tout en direct, en coordonnees honnetes :
+     * donc {@code /buckshot pose} regle tout en direct, en coordonnees honnetes :
      * avant / droite / haut par rapport au corps du dealer, lacet / tangage /
      * roulis en degres autour du canon.
      */
@@ -1004,7 +1018,7 @@ public final class MiseEnScene implements ScenePartie {
         poseVise = pose;
         // Posture inconnue : force le prochain rafraichissement a la
         // reappliquer. L'ancien code vidait la main ici sans invalider la
-        // posture : des la deuxieme commande /rr pose, main vide et bras
+        // posture : des la deuxieme commande /buckshot pose, main vide et bras
         // jamais releve, la posture croyant etre deja en place.
         brasVise = -1;
         rafraichirVise();
@@ -1101,7 +1115,7 @@ public final class MiseEnScene implements ScenePartie {
     }
 
     /**
-     * Pose l'ItemDisplay d'une posture reglee par {@code /rr pose} sur
+     * Pose l'ItemDisplay d'une posture reglee par {@code /buckshot pose} sur
      * {@code porteur}, et retourne l'affichage (cree au premier appel).
      */
     private ItemDisplay poserFusilPose(ItemDisplay affichage, Player porteur,
@@ -1294,7 +1308,7 @@ public final class MiseEnScene implements ScenePartie {
 
     /**
      * Pose statique d'essai posee sur SOI, visible par soi-meme, rafraichie
-     * de la config toutes les 2 ticks : combinee a {@code /rr pose <pose>
+     * de la config toutes les 2 ticks : combinee a {@code /buckshot pose <pose>
      * <axe> <delta>}, elle bouge sous les yeux du regleur sans rien rejouer.
      * Suit le cap courant, donc se juge aussi bien en F5 qu'en premiere
      * personne.
@@ -1359,7 +1373,7 @@ public final class MiseEnScene implements ScenePartie {
     }
 
     /**
-     * La cigarette se cale a la bouche par {@code /rr pose cigarette}, comme
+     * La cigarette se cale a la bouche par {@code /buckshot pose cigarette}, comme
      * les poses du fusil : le repere ne se deduit pas, il se mesure. Les
      * valeurs par defaut ci-dessous doublent celles de la commande pour que
      * la scene marche meme si la pose n'a jamais ete reglee.
@@ -1891,6 +1905,18 @@ public final class MiseEnScene implements ScenePartie {
                 stopperSiNecessaire(joueur);
                 bloqueeJusquaSortie.remove(joueur.getUniqueId());
             } else if (distance <= rayonDepart && !bloqueeJusquaSortie.contains(joueur.getUniqueId())) {
+                if (!musiqueAMoi(joueur, distance)) {
+                    // une autre table est plus proche : elle possede cet
+                    // auditeur. On coupe ce qu'on jouait et on efface son
+                    // horloge PARTOUT pour que la table gagnante relance
+                    // aussitot (les pistes portent les memes noms, un stop
+                    // coupe aussi celle de la voisine).
+                    if (musique.containsKey(joueur.getUniqueId())) {
+                        couperPistes(joueur);
+                        for (MiseEnScene scene : SCENES) scene.musique.remove(joueur.getUniqueId());
+                    }
+                    continue;
+                }
                 jouerMusique(joueur);
                 // Le jukebox vanilla ne se coordonne avec rien : il peut lancer
                 // un morceau par-dessus le notre a tout moment. Il n'existe pas
@@ -1904,6 +1930,20 @@ public final class MiseEnScene implements ScenePartie {
                 }
             }
         }
+    }
+
+    /** Vrai si aucune autre table configuree du meme monde n'est plus proche. */
+    private boolean musiqueAMoi(Player joueur, double maDistance) {
+        for (MiseEnScene autre : SCENES) {
+            if (autre == this || autre.config == null) continue;
+            Location centre = autre.centreConfigure();
+            if (centre == null || !centre.getWorld().equals(joueur.getWorld())) continue;
+            double d = joueur.getLocation().distance(centre);
+            if (d < maDistance - 0.01) return false;
+            // egalite parfaite (improbable) : une seule des deux gagne
+            if (Math.abs(d - maDistance) <= 0.01 && System.identityHashCode(autre) < System.identityHashCode(this)) return false;
+        }
+        return true;
     }
 
     private void jouerMusique(Player joueur) {

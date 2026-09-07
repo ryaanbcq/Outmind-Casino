@@ -336,7 +336,7 @@ public final class EcouteurPartie implements Listener {
     }
 
     /**
-     * Seules /rr et /leave restent ouvertes a un joueur assis (les admins
+     * Seules /buckshot et /leave restent ouvertes a un joueur assis (les admins
      * gardent tout) : /spawn, /warp, /home et consorts sont des sorties de
      * table hors circuit.
      */
@@ -347,17 +347,22 @@ public final class EcouteurPartie implements Listener {
         if (commandeAutorisee(evenement.getMessage())) return;
         evenement.setCancelled(true);
         evenement.getPlayer().sendMessage(net.kyori.adventure.text.Component.text(
-                "Only /rr and /leave are allowed during a game.",
+                "Only /buckshot and /leave are allowed during a game.",
                 net.kyori.adventure.text.format.NamedTextColor.RED));
     }
 
-    /** /rr, /leave, avec ou sans prefixe de plugin (buckshot:rr), sans casse. */
+    /**
+     * /buckshot (et son alias /rr), /leave, avec ou sans prefixe de plugin
+     * (buckshot:buckshot, buckshot:rr), sans casse. La commande principale
+     * s'appelle buckshot depuis le 2026-09-03 : sans elle dans la liste, un
+     * joueur assis ne pouvait plus taper /buckshot abandonner ni continuer.
+     */
     static boolean commandeAutorisee(String message) {
         String texte = message.startsWith("/") ? message.substring(1) : message;
         String premier = texte.trim().split("\\s+", 2)[0].toLowerCase(java.util.Locale.ROOT);
         int deuxPoints = premier.indexOf(':');
         if (deuxPoints >= 0) premier = premier.substring(deuxPoints + 1);
-        return premier.equals("rr") || premier.equals("leave");
+        return premier.equals("buckshot") || premier.equals("rr") || premier.equals("leave");
     }
 
     @EventHandler
