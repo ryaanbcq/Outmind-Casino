@@ -1,10 +1,12 @@
 # Outmind Casino
 
-Backend of the **Outmind Casino**, a Minecraft casino whose chips are real money
-from a public survival server. Players deposit by paying a bank account on the
-public server, play on a private Paper server, and withdraw back to the public
-server. This repository contains the three Node.js processes that move the
-money and talk to players, plus the Paper plugins and the resource pack we wrote for the casino (`paper/`).
+Backend of the **Outmind Casino**, a Minecraft casino whose chips are the
+virtual in-game currency of a public survival server. No real money is
+involved at any point: every amount handled here is game money with no
+real-world value. Players deposit by paying a bank account on the public
+server, play on a private Paper server, and withdraw back to the public
+server. This repository contains the three Node.js processes that move that
+in-game money and talk to players, plus the Paper plugins and the resource pack we wrote for the casino (`paper/`).
 
 ```
  public server (DonutSMP)          this repo (VPS, pm2)               private Paper server
