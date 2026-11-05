@@ -29,7 +29,8 @@
 //
 //  DOCTRINE : les probabilites vivent dans CE code (crypto.randomInt,
 //  pas Math.random), pas dans un modele. L'argent passe UNIQUEMENT
-//  par admin-orders.jsonl (debit/credit signes chain:<tag>).
+//  par admin-orders.jsonl : un ordre `bet` par tirage (mise + gain,
+//  atomique, refuse si la mise n'est plus la), signe chain:<tag>.
 // ============================================================
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const fs = require('fs');
@@ -278,19 +279,23 @@ async function confirmLocked(interaction, token) {
   if (p.amount > info.withdrawable) return { content: 'You can only put up ' + fmt(info.withdrawable) + ' right now.' };
   if (deps.hasLock && deps.hasLock(link.player)) return { content: 'You have a cash out or transfer going through. Wait a minute, then try again.' };
 
-  if (deps.lockPlayer) deps.lockPlayer(link.player); // le debit part au prochain tick du bridge
-  deps.queueOrder({
-    kind: 'debit', player: link.player, amount: p.amount,
-    reason: p.kind === 'start' ? 'chain game: opening bet' : 'chain game: double attempt',
-    by: 'chain:' + p.tag, byId: p.userId,
-  });
+  if (deps.lockPlayer) deps.lockPlayer(link.player); // l'ordre part au prochain tick du bridge
   const won = roll();
   const player = link.player;
+  // UN SEUL ordre atomique : mise et gain dans la meme mutation du grand
+  // livre, refuse par le bridge si la mise n'est plus sur le compte. Avant
+  // (debit puis credit separes) un joueur qui sortait sa mise du vault entre
+  // le clic et le tick du bridge jouait gratuitement : le debit tombait a
+  // vide (plafonne a 0) et le credit du gain passait quand meme.
+  deps.queueOrder({
+    kind: 'bet', player, amount: p.amount, payout: won ? p.amount * 2 : 0,
+    reason: (p.kind === 'start' ? 'chain game: opening bet' : 'chain game: double attempt') + (won ? ', doubled' : ', lost'),
+    by: 'chain:' + p.tag, byId: p.userId,
+  });
 
   if (p.kind === 'start') {
     if (won) {
       const payout = p.amount * 2;
-      deps.queueOrder({ kind: 'credit', player, amount: payout, reason: 'chain game: doubled, winner', by: 'chain:' + p.tag, byId: p.userId });
       s.history.push({ endedAt: Date.now(), winner: player, won: payout, steps: 1, pot: p.amount });
       await clearEvents(s); save(s); await refreshBoard();
       return { content: 'DOUBLED. You opened with ' + fmt(p.amount) + ' and it paid instantly: **' + fmt(payout) + '** credited. The chain is already over.' };
@@ -309,7 +314,6 @@ async function confirmLocked(interaction, token) {
 
   if (won) {
     const payout = p.amount * 2;
-    deps.queueOrder({ kind: 'credit', player, amount: payout, reason: 'chain game: doubled, winner', by: 'chain:' + p.tag, byId: p.userId });
     s.history.push({ endedAt: Date.now(), winner: player, won: payout, steps: s.chain.step, pot });
     s.chain = null;
     await clearEvents(s); save(s); await refreshBoard();

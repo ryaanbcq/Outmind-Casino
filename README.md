@@ -62,6 +62,8 @@ scripts, the scoreboard, the resource pack) is ours and lives under `paper/`.
 - Both sides of a movement always change by the same amount. Breaking that invariant creates money.
 - Withdrawals are bounded only by quotas: a per-player daily cap by rank (Gambler / Investor) and a house cap expressed as a percentage of the treasury. Quotas reset at midnight Paris time.
 - The bridge emits credits in write-ahead batches with sequence numbers; the plugin deduplicates on the sequence, so a retried batch is applied exactly once.
+- Discord games (`/chain`) never emit a debit and a credit separately: one `bet` order carries the stake and the payout, applied in a single ledger mutation and refused outright when the stake is no longer on the account. A debit is floored at zero, so a split pair let a player who moved their stake out of the vault before the bridge tick play for free.
+- Both state files are guarded at boot: the bridge refuses to start without `bridge-state.json` when the ledger has balances (a blank state would replay the whole outbox), and the plugin suspends inbox and cashouts when its `state.yml` is unreadable (a blank state would replay inbox credits and free the welcome reserve).
 - Circuit breaker: a single push above a threshold is blocked, two near-identical large pushes in a short window freeze the player and alert the admin channel. Negative pushes are never blocked.
 - A payout is confirmed only by the public server's own "You paid" message. A payment sent right before a disconnect is marked suspect and never retried automatically.
 
@@ -101,7 +103,8 @@ The money core (`mineflayer-bot/lib`) has a dependency-free `node:test` suite
 that replays the incidents documented in the code comments: the truncated
 "1.9M" payment confirmation, the admin gifts that blocked every cashout, the
 2 x 70M reconciliation loop, a corrupted ledger read as empty, and several
-processes writing the same ledger at once (no deposit may be lost).
+processes writing the same ledger at once (no deposit may be lost), and the
+atomic `bet` order of the Discord games (refused when the stake is gone).
 
 ```bash
 (cd mineflayer-bot && npm test)

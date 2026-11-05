@@ -57,6 +57,15 @@ public final class ControleurDuel {
     private Defi defi;
     private long miseCourante;
     private BukkitTask suiviVisee;
+    /**
+     * Compte a rebours d'inactivite du tour, pendant du solo (2026-11-05). Sans
+     * lui, le duelliste en train de perdre gardait le fusil en main sans jouer :
+     * l'adversaire ne pouvait ni partir (/leave ou quit = forfait, pot au
+     * parqueur) ni teleporter, la table restait occupee, et le prochain
+     * redemarrage rendait les deux mises - un duel perdu converti en annulation.
+     */
+    private BukkitTask tacheInactivite;
+    private BukkitTask avertissementInactivite;
     /** Poses imposees hors visee (inspection loupe), par joueur. */
     private final java.util.Set<UUID> posesForcees = new java.util.HashSet<>();
     private int cartouchesVisibles;
@@ -549,6 +558,7 @@ public final class ControleurDuel {
         // Des ce premier coup accepte, un forfait paye le pot ; avant, il
         // ne fait que rendre les mises (voir forfait).
         courante.marquerPremierTir();
+        annulerInactivite();
         courante.verrouiller(true);
         courante.demanderPompe(acteur);
         String visee = cible == Cible.SOI ? "aim_self" : "aim_front";
@@ -565,6 +575,7 @@ public final class ControleurDuel {
             erreur(joueur, action.erreur());
             return false;
         }
+        annulerInactivite();
         if (objet != Objet.LOUPE) courante.demanderPompe(acteur);
         if (objet == Objet.LOUPE) {
             courante.verrouiller(true);
@@ -814,6 +825,58 @@ public final class ControleurDuel {
         inventaire.preparerHotbar(joueurPassif, courante.id(),
                 courante.moteur().participant(actif.oppose()), false, joueurActif.getName());
         armerGraceBedrock(joueurActif);
+        armerInactiviteTour(courante, actif);
+    }
+
+    private int inactiviteTourSecondes() {
+        return plugin.getConfig().getInt("duel.inactivite-tour-secondes",
+                plugin.getConfig().getInt("game.inactivite-tour-secondes", 90));
+    }
+
+    /**
+     * (Re)arme le compte a rebours du tour de {@code actif} : avertissement 30 s
+     * avant l'echeance, puis forfait du joueur inactif (le pot va a l'adversaire
+     * si le premier tir est fait, sinon les mises sont rendues, exactement comme
+     * un /leave). 0 ou moins desactive le delai. Toute action acceptee (tir,
+     * objet) annule le compte, et la main suivante le rearme.
+     */
+    private void armerInactiviteTour(SessionDuel courante, Acteur actif) {
+        annulerInactivite();
+        int secondes = inactiviteTourSecondes();
+        if (secondes <= 0) return;
+        UUID inactifId = courante.joueurId(actif);
+        if (secondes > 30) {
+            avertissementInactivite = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                if (!active(courante)) return;
+                Player humain = joueur(courante, actif);
+                if (humain != null) {
+                    humain.sendMessage(Component.text("Play or you forfeit the duel in 30 s.",
+                            NamedTextColor.RED));
+                }
+            }, (secondes - 30) * 20L);
+        }
+        tacheInactivite = Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!active(courante)) return;
+            try {
+                forfait(inactifId, nomJoueur(inactifId) + " forfeited the duel for inactivity.");
+            } catch (RuntimeException erreur) {
+                plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                        "duel " + courante.id() + " (inactivite) : " + erreur.getMessage(), erreur);
+                // Meme regle que programmer() : jamais de remboursement ici.
+                annulerDuel("The duel was cancelled after an error.", false);
+            }
+        }, secondes * 20L);
+    }
+
+    private void annulerInactivite() {
+        if (avertissementInactivite != null) {
+            avertissementInactivite.cancel();
+            avertissementInactivite = null;
+        }
+        if (tacheInactivite != null) {
+            tacheInactivite.cancel();
+            tacheInactivite = null;
+        }
     }
 
     private void lancerRechargement(SessionDuel courante) {
@@ -901,6 +964,10 @@ public final class ControleurDuel {
         UUID gagnantId = courante.joueurId(partant.oppose());
         long pot = miseCourante * 2;
         if (!courante.premierTirFait()) {
+            // Sortie gratuite avant le premier tir (pile ou face perdu, chargeur
+            // qui deplait) : au moins le meme delai de 10 s qu'un defi retire,
+            // pour que « /leave puis on recommence » ne soit pas instantane.
+            retraitsRecents.put(quitteurId, System.currentTimeMillis());
             // annulerDuel(rembourser) rend SA mise a chaque joueur encore
             // joignable (le quitteur l'est encore pendant son evenement de
             // depart) : jamais le pot, la session n'est pas reglee.
@@ -1001,6 +1068,7 @@ public final class ControleurDuel {
         // l'argent (pot au gagnant PUIS mises rendues aux deux).
         boolean rendreLesMises = courante.rembourserAutorise(rembourser);
         courante.annuler();
+        annulerInactivite();
         if (suiviVisee != null) { suiviVisee.cancel(); suiviVisee = null; }
         posesForcees.clear();
         scene.masquerViesJoueur();

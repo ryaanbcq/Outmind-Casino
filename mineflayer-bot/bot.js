@@ -124,6 +124,40 @@ if (!bankStateExisted && bankState.payoutOffset === 0) {
     }
   } catch {}
 }
+// Un /pay deja PARTI (sentAt pose) et toujours en attente au demarrage n'a,
+// par definition, jamais ete confirme : le process est mort entre l'envoi et
+// le « You paid » (pm2 restart, max_memory_restart, crash). Le marquage
+// « suspect » ne vivait que dans bot.on('end'), qu'un kill ne declenche pas,
+// et le retry automatique repayait a l'aveugle (revue 2026-11-05). On
+// suspend ici : un humain tranche, comme pour une coupure reseau.
+{
+  let marques = 0;
+  for (const p of bankState.pendingPayouts) {
+    if ((p.sentAt || 0) > 0 && !p.suspect) { p.suspect = true; marques++; }
+  }
+  if (marques) {
+    try { saveBankState(); } catch {}
+    const texte = `[cashout] ${marques} paiement(s) partis avant l'arret sans confirmation : suspendus (verifier a la main, puis !payout retry ou remboursement)`;
+    console.warn(texte);
+    try { fs.appendFileSync(ALERTS_FILE, JSON.stringify({ at: Date.now(), text: texte }) + '\n'); } catch {}
+  }
+}
+// meme doctrine sur un arret propre (pm2 stop/restart envoie SIGINT) : on
+// suspend ce qui est en vol AVANT de mourir, sans attendre le 'end' mineflayer
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    const cutoff = Date.now() - 3 * 60 * 1000;
+    let marques = 0;
+    for (const p of bankState.pendingPayouts) {
+      if ((p.sentAt || 0) > cutoff && !p.suspect) { p.suspect = true; marques++; }
+    }
+    if (marques) {
+      try { saveBankState(); } catch {}
+      console.warn(`[cashout] ${sig} : ${marques} paiement(s) en vol suspendus avant l'arret`);
+    }
+    process.exit(0);
+  });
+}
 function loadNewPayouts() {
   let lines = [];
   try {
@@ -763,7 +797,16 @@ function createBot() {
     if (username === bot.username) return;
     console.log(`[chat] <${username}> ${message}`);
     maybeProspect(username, message);
-    if (message.startsWith('!')) handleCommand(username, message);
+    if (!message.startsWith('!')) return;
+    // memes gardes que la voie /msg : nom sur, present dans le grand livre,
+    // pas blackliste. Avant, un joueur blackliste pouvait contourner le
+    // silence du bot avec un « !withdraw all » en chat public (revue 2026-11-05).
+    if (username !== process.env.ADMIN_USER) {
+      if (!nomSur(username)) { console.log(`[chat] <${username}> ignore (nom suspect)`); return; }
+      if (!Object.hasOwn(loadBalances(), username)) { console.log(`[chat] <${username}> ignore (hors grand livre)`); return; }
+      if (isBlacklisted(username)) { console.log(`[chat] <${username}> ignore (blacklist)`); return; }
+    }
+    handleCommand(username, message);
   });
 
   // messages privés (/msg)

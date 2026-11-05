@@ -43,6 +43,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
+import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -63,6 +64,7 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.Sound;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -85,6 +87,16 @@ implements Listener {
     private File outboxFile;
     private File stateFile;
     private long lastSeq = 0L;
+    // state.yml present mais illisible : on ne repart JAMAIS de zero en silence.
+    // last-seq a 0 rejouerait les credits encore presents dans l'inbox, et une
+    // liste bonus-given vide rendrait les 500K de bienvenue encaissables. Tant
+    // que ce drapeau est leve : pas d'inbox, pas de cashout, pas d'ecriture.
+    private boolean stateCorrupt = false;
+    // Les cles YAML sont des pseudos ; un pseudo Bedrock commence par un point,
+    // le separateur de chemin par defaut. Avec '.' le chemin "tx..scyroz" se
+    // perdait dans une section vide et l'etat du joueur disparaissait a chaque
+    // redemarrage (invested, daily, tx PENDING). D'ou '/' partout.
+    private static final char PATH_SEP = '/';
     private final Map<UUID, Double> cache = new HashMap<UUID, Double>();
     private final Map<UUID, Long> joinedAt = new HashMap<UUID, Long>();
     private static final long GRACE_MS = 6000L;
@@ -148,35 +160,52 @@ implements Listener {
         this.verifyFile = new File(this.getDataFolder(), "discord-verify.json");
         this.loadVerifyCodes();
         if (this.stateFile.exists()) {
-            YamlConfiguration st = YamlConfiguration.loadConfiguration((File)this.stateFile);
-            this.lastSeq = st.getLong("last-seq", 0L);
-            for (String n : st.getStringList("bonus-given")) {
-                this.bonusGiven.add(n.toLowerCase());
+            YamlConfiguration st = new YamlConfiguration();
+            st.options().pathSeparator(PATH_SEP);
+            boolean lisible;
+            try {
+                st.load(this.stateFile);
+                // un fichier tronque a vide se charge sans erreur : on exige
+                // la cle qui est TOUJOURS ecrite par saveState
+                lisible = st.contains("last-seq");
             }
-            if (st.isConfigurationSection("tx")) {
-                for (String k : st.getConfigurationSection("tx").getKeys(false)) {
-                    this.txStatus.put(k, st.getString("tx." + k + ".status", "NONE"));
-                    this.txAmount.put(k, st.getDouble("tx." + k + ".amount", 0.0));
-                    this.txAt.put(k, st.getLong("tx." + k + ".at", 0L));
+            catch (IOException | InvalidConfigurationException e) {
+                this.getLogger().severe("state.yml illisible : " + e.getMessage());
+                lisible = false;
+            }
+            if (!lisible) {
+                this.stateCorrupt = true;
+                this.getLogger().severe("state.yml present mais illisible ou vide : inbox et cashouts SUSPENDUS. Restaurer state.yml (ou state.yml.bak) puis redemarrer. Rien n'est ecrit tant que ce message est la.");
+            } else {
+                this.lastSeq = st.getLong("last-seq", 0L);
+                for (String n : st.getStringList("bonus-given")) {
+                    this.bonusGiven.add(n.toLowerCase());
                 }
-            }
-            if (st.isConfigurationSection("history")) {
-                for (String k : st.getConfigurationSection("history").getKeys(false)) {
-                    this.txHistory.put(k, new ArrayList(st.getStringList("history." + k)));
+                if (st.isConfigurationSection("tx")) {
+                    for (String k : st.getConfigurationSection("tx").getKeys(false)) {
+                        this.txStatus.put(k, st.getString("tx/" + k + "/status", "NONE"));
+                        this.txAmount.put(k, st.getDouble("tx/" + k + "/amount", 0.0));
+                        this.txAt.put(k, st.getLong("tx/" + k + "/at", 0L));
+                    }
                 }
-            }
-            if (st.isConfigurationSection("daily")) {
-                for (String k : st.getConfigurationSection("daily").getKeys(false)) {
-                    this.dailyClaimed.put(k, st.getLong("daily." + k, 0L));
+                if (st.isConfigurationSection("history")) {
+                    for (String k : st.getConfigurationSection("history").getKeys(false)) {
+                        this.txHistory.put(k, new ArrayList(st.getStringList("history/" + k)));
+                    }
                 }
-            }
-            if (st.isConfigurationSection("invested")) {
-                for (String k : st.getConfigurationSection("invested").getKeys(false)) {
-                    this.invested.put(k, st.getDouble("invested." + k, 0.0));
+                if (st.isConfigurationSection("daily")) {
+                    for (String k : st.getConfigurationSection("daily").getKeys(false)) {
+                        this.dailyClaimed.put(k, st.getLong("daily/" + k, 0L));
+                    }
+                }
+                if (st.isConfigurationSection("invested")) {
+                    for (String k : st.getConfigurationSection("invested").getKeys(false)) {
+                        this.invested.put(k, st.getDouble("invested/" + k, 0.0));
+                    }
                 }
             }
         }
-        if (this.bonusGiven.isEmpty()) {
+        if (this.bonusGiven.isEmpty() && !this.stateCorrupt) {
             this.bonusGiven.addAll(List.of("letenders", "ezokay", "2real4youuu"));
         }
         if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
@@ -194,6 +223,9 @@ implements Listener {
 
     private void processInbox() {
         List<String> lines;
+        if (this.stateCorrupt) {
+            return;
+        }
         if (!this.inboxFile.exists()) {
             return;
         }
@@ -205,54 +237,74 @@ implements Listener {
             return;
         }
         boolean advanced = false;
-        for (String line : lines) {
-            boolean ok;
-            JsonObject o;
-            if ((line = line.trim()).isEmpty()) continue;
-            try {
-                o = JsonParser.parseString((String)line).getAsJsonObject();
-            }
-            catch (Exception e) {
-                continue;
-            }
-            long seq = o.get("seq").getAsLong();
-            if (seq <= this.lastSeq) continue;
-            String name = o.get("player").getAsString();
-            double amount = o.get("amount").getAsDouble();
-            if (o.has("kind") && "txresult".equals(o.get("kind").getAsString())) {
-                this.applyTxResult(name, amount, o.get("status").getAsString());
+        try {
+            for (String line : lines) {
+                boolean ok;
+                JsonObject o;
+                if ((line = line.trim()).isEmpty()) continue;
+                try {
+                    o = JsonParser.parseString((String)line).getAsJsonObject();
+                }
+                catch (Exception e) {
+                    continue;
+                }
+                long seq;
+                String name;
+                double amount;
+                try {
+                    seq = o.get("seq").getAsLong();
+                    if (seq <= this.lastSeq) continue;
+                    name = o.get("player").getAsString();
+                    amount = o.get("amount").getAsDouble();
+                    if (o.has("kind") && "txresult".equals(o.get("kind").getAsString())) {
+                        this.applyTxResult(name, amount, o.get("status").getAsString());
+                        this.lastSeq = seq;
+                        advanced = true;
+                        continue;
+                    }
+                }
+                catch (RuntimeException e) {
+                    // JSON valide mais champ manquant ou du mauvais type : on ne
+                    // SAUTE pas une ligne d'argent, et on ne laisse pas non plus
+                    // l'exception emporter la sauvegarde des credits deja
+                    // appliques dans ce tick (sinon un redemarrage les rejoue).
+                    // Le traitement s'arrete ICI jusqu'a correction du fichier.
+                    this.getLogger().severe("Ligne inbox invalide, traitement STOPPE a cette ligne (corriger inbox.jsonl) : " + line + " : " + e);
+                    break;
+                }
+                OfflinePlayer op = Bukkit.getOfflinePlayer((String)name);
+                if (!op.hasPlayedBefore() && !op.isOnline()) {
+                    ok = false;
+                } else if (amount >= 0.0) {
+                    ok = this.eco.depositPlayer(op, amount).transactionSuccess();
+                } else {
+                    EconomyResponse r = this.eco.withdrawPlayer(op, -amount);
+                    ok = r.transactionSuccess();
+                }
+                if (ok) {
+                    Player online = Bukkit.getPlayerExact((String)name);
+                    if (online != null && this.cache.containsKey(online.getUniqueId())) {
+                        this.cache.merge(online.getUniqueId(), amount, Double::sum);
+                    }
+                    if (online != null && amount > 0.0) {
+                        online.sendMessage(PREFIX + "\u00a7a\u00a7l+$" + String.format("%,.0f", amount) + "\u00a7f\u00a7l on your in-game balance.");
+                    }
+                    this.appendOutbox(this.obj("type", "applied", "seq", seq, "player", name, "amount", amount));
+                    this.getLogger().info("Inbox seq " + seq + " : " + name + " " + (amount >= 0.0 ? "+" : "") + amount);
+                } else {
+                    this.appendOutbox(this.obj("type", "apply_failed", "seq", seq, "player", name, "amount", amount));
+                    this.getLogger().warning("Inbox seq " + seq + " NON appliquee (" + name + ", " + amount + ")");
+                }
                 this.lastSeq = seq;
                 advanced = true;
-                continue;
             }
-            OfflinePlayer op = Bukkit.getOfflinePlayer((String)name);
-            if (!op.hasPlayedBefore() && !op.isOnline()) {
-                ok = false;
-            } else if (amount >= 0.0) {
-                ok = this.eco.depositPlayer(op, amount).transactionSuccess();
-            } else {
-                EconomyResponse r = this.eco.withdrawPlayer(op, -amount);
-                ok = r.transactionSuccess();
-            }
-            if (ok) {
-                Player online = Bukkit.getPlayerExact((String)name);
-                if (online != null && this.cache.containsKey(online.getUniqueId())) {
-                    this.cache.merge(online.getUniqueId(), amount, Double::sum);
-                }
-                if (online != null && amount > 0.0) {
-                    online.sendMessage(PREFIX + "\u00a7a\u00a7l+$" + String.format("%,.0f", amount) + "\u00a7f\u00a7l on your in-game balance.");
-                }
-                this.appendOutbox(this.obj("type", "applied", "seq", seq, "player", name, "amount", amount));
-                this.getLogger().info("Inbox seq " + seq + " : " + name + " " + (amount >= 0.0 ? "+" : "") + amount);
-            } else {
-                this.appendOutbox(this.obj("type", "apply_failed", "seq", seq, "player", name, "amount", amount));
-                this.getLogger().warning("Inbox seq " + seq + " NON appliquee (" + name + ", " + amount + ")");
-            }
-            this.lastSeq = seq;
-            advanced = true;
         }
-        if (advanced) {
-            this.saveState();
+        finally {
+            // meme si une ligne a explose plus haut : ce qui a ete depose en jeu
+            // est acte sur disque, sinon un redemarrage le redeposerait
+            if (advanced) {
+                this.saveState();
+            }
         }
     }
 
@@ -301,6 +353,9 @@ implements Listener {
                 this.eco.depositPlayer((OfflinePlayer)p, 500000.0);
                 p.sendMessage(WELCOME_MSG);
                 this.bonusGiven.add(p.getName().toLowerCase());
+                // aussi par UUID : un changement de pseudo Mojang perdait la
+                // reserve et rendait les 500K encaissables (revue 2026-11-05)
+                this.bonusGiven.add(p.getUniqueId().toString());
                 this.saveState();
                 this.getLogger().info("Bonus de bienvenue 500000.0 donne a " + p.getName());
             }, 40L);
@@ -419,6 +474,11 @@ implements Listener {
         if (name == null) {
             return;
         }
+        if (this.stateCorrupt) {
+            this.tell(p, PREFIX + "\u00a7c\u00a7lCashouts are closed for maintenance\u00a7f\u00a7l: the casino's state file is being restored. Your money is safe, try again later.");
+            this.refuseCashout(name, 0.0, 0.0, "maintenance", ref);
+            return;
+        }
         String keyPending = name.toLowerCase();
         if ("PENDING".equals(this.txStatus.get(keyPending))) {
             this.tell(p, PREFIX + "\u00a7c\u00a7lOne cashout at a time\u00a7f\u00a7l: your previous cashout is still on its way. Give it a few seconds.");
@@ -435,7 +495,7 @@ implements Listener {
             return;
         }
         double balance = this.eco.getBalance(p);
-        double reserve = this.bonusGiven.contains(name.toLowerCase()) ? 500000.0 : 0.0;
+        double reserve = this.hasBonus(p) ? 500000.0 : 0.0;
         double allowed = Math.max(0.0, Math.floor(balance - reserve));
         if (amountArg == null) {
             this.tell(p, PREFIX + "You can cash out up to \u00a7a\u00a7l$" + String.format("%,.0f", allowed) + "\u00a7f\u00a7l" + (reserve > 0.0 ? " (your 500K welcome bonus stays in the casino)." : "."));
@@ -519,7 +579,7 @@ implements Listener {
         double amount;
         String key = p.getName().toLowerCase();
         double balance = this.eco.getBalance((OfflinePlayer)p);
-        double reserve = this.bonusGiven.contains(key) ? 500000.0 : 0.0;
+        double reserve = this.hasBonus((OfflinePlayer)p) ? 500000.0 : 0.0;
         double allowed = Math.max(0.0, Math.floor(balance - reserve));
         if (arg == null) {
             p.sendMessage(PREFIX + "Invest in the casino: you \u00a7c\u00a7lgive up\u00a7f\u00a7l that money for good, it becomes house capital.");
@@ -894,27 +954,56 @@ implements Listener {
         }
     }
 
+    // reserve de bienvenue : par pseudo (historique, lu aussi par le bot
+    // Discord) OU par UUID (robuste aux changements de pseudo)
+    private boolean hasBonus(OfflinePlayer p) {
+        if (p == null) {
+            return false;
+        }
+        String name = p.getName();
+        return (name != null && this.bonusGiven.contains(name.toLowerCase()))
+            || this.bonusGiven.contains(p.getUniqueId().toString());
+    }
+
     private void saveState() {
+        if (this.stateCorrupt) {
+            // on n'ecrase JAMAIS un state.yml qu'on n'a pas su lire : il est la
+            // seule trace de last-seq et des bonus ; un humain le restaure
+            this.getLogger().severe("saveState refuse : state.yml illisible au demarrage, rien n'est ecrit.");
+            return;
+        }
         YamlConfiguration y = new YamlConfiguration();
+        y.options().pathSeparator(PATH_SEP);
         y.set("last-seq", (Object)this.lastSeq);
         y.set("bonus-given", new ArrayList<String>(this.bonusGiven));
         for (Map.Entry<String, String> entry : this.txStatus.entrySet()) {
             String k = entry.getKey();
-            y.set("tx." + k + ".status", (Object)entry.getValue());
-            y.set("tx." + k + ".amount", (Object)this.txAmount.getOrDefault(k, 0.0));
-            y.set("tx." + k + ".at", (Object)this.txAt.getOrDefault(k, 0L));
+            y.set("tx/" + k + "/status", (Object)entry.getValue());
+            y.set("tx/" + k + "/amount", (Object)this.txAmount.getOrDefault(k, 0.0));
+            y.set("tx/" + k + "/at", (Object)this.txAt.getOrDefault(k, 0L));
         }
         for (Map.Entry<String, List<String>> entry : this.txHistory.entrySet()) {
-            y.set("history." + entry.getKey(), entry.getValue());
+            y.set("history/" + entry.getKey(), entry.getValue());
         }
         for (Map.Entry<String, Long> entry : this.dailyClaimed.entrySet()) {
-            y.set("daily." + entry.getKey(), entry.getValue());
+            y.set("daily/" + entry.getKey(), entry.getValue());
         }
         for (Map.Entry<String, Double> entry : this.invested.entrySet()) {
-            y.set("invested." + entry.getKey(), entry.getValue());
+            y.set("invested/" + entry.getKey(), entry.getValue());
         }
+        // ecriture ATOMIQUE : tmp puis rename. YamlConfiguration.save ecrit en
+        // place ; un crash en pleine ecriture (plusieurs fois par minute, a
+        // chaque lot inbox) laissait un fichier tronque, relu comme vide au
+        // redemarrage : last-seq 0 => credits de l'inbox rejoues, bonus-given
+        // vide => 500K de bienvenue encaissables (revue adversariale 2026-11-05).
+        File tmp = new File(this.stateFile.getParentFile(), "state.yml.tmp");
+        File bak = new File(this.stateFile.getParentFile(), "state.yml.bak");
         try {
-            y.save(this.stateFile);
+            y.save(tmp);
+            if (this.stateFile.exists()) {
+                Files.copy(this.stateFile.toPath(), bak.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            Files.move(tmp.toPath(), this.stateFile.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         }
         catch (IOException e) {
             this.getLogger().warning("Sauvegarde state impossible : " + e.getMessage());
@@ -951,19 +1040,19 @@ implements Listener {
             switch (param = params.toLowerCase()) {
                 case "balance": {
                     double bal = OutMindLink.this.eco.getBalance(p);
-                    double reserve = OutMindLink.this.bonusGiven.contains(key) ? 500000.0 : 0.0;
+                    double reserve = OutMindLink.this.hasBonus(p) ? 500000.0 : 0.0;
                     return String.format("%,.0f", Math.max(0.0, Math.floor(bal - reserve)));
                 }
                 case "bonus": {
                     // ce qu'il RESTE du bonus dans le vault (un bonus joue et
                     // perdu ne compte plus) : balance_raw + bonus = vault complet
-                    double reserve = OutMindLink.this.bonusGiven.contains(key) ? 500000.0 : 0.0;
+                    double reserve = OutMindLink.this.hasBonus(p) ? 500000.0 : 0.0;
                     double bal = OutMindLink.this.eco.getBalance(p);
                     return String.format("%,.0f", Math.max(0.0, Math.min(Math.floor(bal), reserve)));
                 }
                 case "balance_raw": {
                     double bal = OutMindLink.this.eco.getBalance(p);
-                    double reserve = OutMindLink.this.bonusGiven.contains(key) ? 500000.0 : 0.0;
+                    double reserve = OutMindLink.this.hasBonus(p) ? 500000.0 : 0.0;
                     return String.valueOf((long)Math.max(0.0, Math.floor(bal - reserve)));
                 }
                 case "bot_status": {

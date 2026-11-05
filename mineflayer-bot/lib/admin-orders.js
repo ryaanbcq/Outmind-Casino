@@ -13,7 +13,17 @@
 //  fin de tick : un crash au milieu rejouait des credits deja payes.
 //
 //  Kinds : credit, debit, pay, transfer (inchanges) + unfreeze /
-//  unfreeze_all / freeze (degel-gel du coupe-circuit, sans montant).
+//  unfreeze_all / freeze (degel-gel du coupe-circuit, sans montant)
+//  + bet (mise d'un jeu Discord : debit de la mise ET credit du gain
+//  dans la MEME mutation, REFUSE si le solde ne couvre pas la mise).
+//
+//  Pourquoi bet existe (revue adversariale 2026-11-05) : la chaine
+//  Discord emettait un debit puis un credit separes. Le debit est
+//  plafonne a 0 (un joueur ne peut pas devoir d'argent au casino), le
+//  credit, lui, s'applique toujours. Un joueur qui sortait sa mise du
+//  vault (/outmind cashout en jeu, ou en la jouant) dans les ~10 s
+//  entre le clic et le tick du bridge jouait donc gratuitement : debit
+//  a vide, gain plein. Avec bet, pas de mise encaissable = pas de gain.
 // ============================================================
 'use strict';
 const path = require('path');
@@ -85,7 +95,29 @@ module.exports = function creerAdminOrders({ dir, ledger, quotas, guard, log }) 
         log(`ordre admin REFUSE (nom ou montant invalide) ligne ${i} : ${JSON.stringify(o).slice(0, 120)}`); commit(); continue;
       }
 
-      if (o.kind === 'credit' || o.kind === 'debit') {
+      if (o.kind === 'bet') {
+        const payout = Number(o.payout) || 0;
+        if (!isFinite(payout) || payout < 0) {
+          log(`bet REFUSE (gain invalide) ligne ${i} : ${JSON.stringify(o).slice(0, 120)}`); commit(); continue;
+        }
+        ledger.mutate('bet', (bals, note) => {
+          o.player = reglerPoint(o.player, bals);
+          const before = bals[o.player] || 0;
+          if (before < amount) {
+            // la mise n'est plus la : on ne prend rien et on ne paie RIEN.
+            // Trace publique pour que l'equipe voie la tentative.
+            log(`bet REFUSE ${o.player} mise ${amount} > solde ${before} par ${o.by} : ${o.reason || 'sans motif'}`);
+            appendLine(TX_FILE, {
+              at: new Date().toISOString(), type: 'bet-refused', player: o.player,
+              amount, payout, balance: before, by: o.by,
+            });
+            return;
+          }
+          note(o.player, payout - amount, { by: o.by });
+          bals[o.player] = before - amount + payout;
+          log(`bet ${o.player} mise ${amount} gain ${payout} par ${o.by} (${before} -> ${bals[o.player]}) : ${o.reason || 'sans motif'}`);
+        }, { after: commit });
+      } else if (o.kind === 'credit' || o.kind === 'debit') {
         // le credit/debit ne touche PAS a state.mirrored : la reconciliation
         // poussera la difference en jeu, exactement comme un depot
         ledger.mutate(`admin-${o.kind}`, (bals, note) => {

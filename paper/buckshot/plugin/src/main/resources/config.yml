@@ -172,6 +172,12 @@ duel:
   objets-par-chargeur: 3
   # Duree de validite d'un defi, en ticks (1200 = 60 s).
   defi-ticks: 1200
+  # Inactivite pendant son tour (secondes, 0 = sans limite) : avertissement
+  # 30 s avant, puis forfait du joueur inactif (pot a l'adversaire apres le
+  # premier tir, mises rendues avant). Absent = valeur de game.inactivite-
+  # tour-secondes. Sans ce delai, le duelliste en train de perdre parquait la
+  # table jusqu'au restart, qui rendait les deux mises.
+  inactivite-tour-secondes: 90
   # Plafond journalier (dollars, 0 = desactive) des mises de duel par joueur,
   # duels DEMARRES du jour (heure de Paris), provocateur comme accepteur ;
   # journal dans duels-journal.yml. Un duel transfere le pot en quelques

@@ -88,6 +88,19 @@ try {
   }
   throw e;
 }
+// coherence croisee inverse : un grand livre PLEIN sans bridge-state.json,
+// c'est un state perdu (nouvel hote, restauration oubliee, OUTMIND_DATA_DIR
+// pointe ailleurs). Avec les defauts (outboxOffset 0, mirrored vide) le
+// premier tick rejouerait TOUT l'historique de l'outbox : chaque cashout
+// passe redeviendrait un /pay a verser, chaque delta serait re-applique, et
+// la reconciliation pousserait chaque solde en jeu une seconde fois. bot.js
+// a le meme garde-fou pour bank-state.json ; le bridge ne l'avait pas
+// (revue adversariale 2026-11-05). Fail-stop : on ne devine pas un miroir.
+if (!fs.existsSync(STATE_FILE) && Object.keys(bals0).length > 0) {
+  alert('boot-state-absent', 'DEMARRAGE REFUSE : bridge-state.json absent alors que balances.json a des soldes. Un demarrage a vide rejouerait tout l\'historique de l\'outbox. Restaurer bridge-state.json depuis backups/ puis relancer.', 0);
+  console.error('[bridge] bridge-state.json absent mais balances.json non vide : arret.');
+  process.exit(1);
+}
 // coherence croisee : un grand livre vide avec un miroir plein, c'est un
 // balances.json perdu - la reconciliation debiterait tout le monde en jeu
 if (Object.keys(bals0).length === 0 && Object.keys(state.mirrored).some((p) => Math.abs(state.mirrored[p]) >= 1)) {
@@ -144,14 +157,25 @@ function processOutboxLine(o, ctx) {
       ctx.commitLine();
       return;
     }
+    // le miroir ne bouge que dans `after`, c'est-a-dire APRES l'ecriture
+    // reussie des soldes. Avant, il bougeait dans fn : si l'ecriture de
+    // balances.json echouait (disque plein), la ligne etait rejouee a chaque
+    // tick avec un miroir qui derivait du meme montant a chaque fois, et la
+    // reconciliation poussait ensuite la derive en jeu (revue 2026-11-05).
+    let applique = 0;
     ledger.mutate('casino-delta', (bals, note) => {
       const prev = bals[o.player] || 0;
       const next = Math.max(0, prev + o.delta);
-      note(o.player, next - prev);
+      applique = next - prev;
+      note(o.player, applique);
       bals[o.player] = next;
-      state.mirrored[o.player] = (state.mirrored[o.player] || 0) + (next - prev);
       log(`delta ${o.player} ${o.delta >= 0 ? '+' : ''}${o.delta.toFixed(2)} (jeu) -> solde ${next.toFixed(2)}${prev + o.delta < 0 ? ' (perte hors banque absorbee)' : ''}`);
-    }, { after: ctx.commitLine });
+    }, {
+      after: () => {
+        state.mirrored[o.player] = (state.mirrored[o.player] || 0) + applique;
+        ctx.commitLine();
+      },
+    });
     recordCasino(o.player, o.delta);
 
   } else if (o.type === 'cashout') {
@@ -161,6 +185,13 @@ function processOutboxLine(o, ctx) {
     // revient en jeu tout seul (mirrored abaisse -> reconcile pousse un
     // credit inbox de la difference).
     const asked = o.amount;
+    if (typeof asked !== 'number' || !isFinite(asked) || asked <= 0 || typeof o.player !== 'string' || !o.player) {
+      // un montant absent ou non numerique mettrait NaN dans le miroir, et
+      // NaN passe tous les seuils du coupe-circuit sans jamais se resorber
+      log(`cashout invalide ignore : ${JSON.stringify(o).slice(0, 120)}`);
+      ctx.commitLine();
+      return;
+    }
     // Compte GELE par le coupe-circuit : si une vraie boucle a fabrique de
     // l'argent, il est dans son VAULT - le laisser cashout, c'est encaisser
     // l'incident. Rien n'est paye : tout revient sur son solde casino, qui
@@ -201,13 +232,16 @@ function processOutboxLine(o, ctx) {
       ledger.mutate('cashout', (bals, note) => {
         note(o.player, -pay);
         bals[o.player] = (bals[o.player] || 0) - pay;
-        state.mirrored[o.player] = (state.mirrored[o.player] || 0) - pay;
-        if (refund > 0) {
-          state.mirrored[o.player] -= refund;
-          attendreRefund();
-        }
       }, {
         after: () => {
+          // miroir et refund attendu APRES l'ecriture des soldes, jamais
+          // avant : une ecriture ratee ne doit laisser aucune trace en memoire
+          // (sinon la ligne rejouee double le refund et le miroir)
+          state.mirrored[o.player] = (state.mirrored[o.player] || 0) - pay;
+          if (refund > 0) {
+            state.mirrored[o.player] -= refund;
+            attendreRefund();
+          }
           // l'ordre de /pay part DANS le meme commit que l'offset : plus de
           // fenetre "ligne consommee mais dette invisible" (revue 2026-08-30).
           // Et l'append reste APRES le saveState : un crash pile entre les
@@ -281,6 +315,11 @@ function processOutboxLine(o, ctx) {
     // le meme montant, et sans cette purge R2 le prenait pour une boucle et
     // gelait chaque premier depot >= 5M d'un joueur pas encore venu (revue
     // 2026-08-30).
+    if (typeof o.amount !== 'number' || !isFinite(o.amount) || typeof o.player !== 'string' || !o.player) {
+      log(`apply_failed invalide ignore : ${JSON.stringify(o).slice(0, 120)}`);
+      ctx.commitLine();
+      return;
+    }
     state.mirrored[o.player] = (state.mirrored[o.player] || 0) - o.amount;
     state.retryAfter[o.player] = Date.now() + 10 * 60 * 1000;
     if (state.pushLog) delete state.pushLog[o.player];
