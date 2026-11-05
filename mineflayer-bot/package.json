@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Mineflayer bank bot and Pterodactyl bridge of the Outmind Casino",
   "scripts": {
-    "check": "node --check bot.js"
+    "check": "node --check bot.js && node --check bridge.js",
+    "test": "node --test \"test/**/*.test.js\""
   },
   "keywords": [],
   "author": "ryaanbcq",

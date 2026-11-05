@@ -95,6 +95,22 @@ adjust `discord-bot/stats.js`. State files (`balances.json`, `daily-cap.json`,
 `links.json`, `bank-state.json`, audit logs) are created next to the scripts
 and are ignored by git.
 
+## Tests
+
+The money core (`mineflayer-bot/lib`) has a dependency-free `node:test` suite
+that replays the incidents documented in the code comments: the truncated
+"1.9M" payment confirmation, the admin gifts that blocked every cashout, the
+2 x 70M reconciliation loop, a corrupted ledger read as empty, and several
+processes writing the same ledger at once (no deposit may be lost).
+
+```bash
+(cd mineflayer-bot && npm test)
+(cd paper/buckshot/plugin && mvn test)
+```
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the Node suite and builds
+the three Paper plugins on every push.
+
 ## Operations
 
 - Deploy a change: edit, `node --check <file>`, `pm2 restart <process>`, commit.
